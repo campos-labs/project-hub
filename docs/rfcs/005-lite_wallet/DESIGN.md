@@ -121,11 +121,3 @@ Node: SaveTransaction   Node: HandleError (Marca PENDING/FAILED)
 * Suíte de testes automatizados rodando com sucesso no CI.
 
 ---
-
-## 🧐 Análise Crítica do Arquiteto
-
-### 🟢 Pontos Positivos
-
-1. **Arquitetura Concisa e de Baixa Complexidade:** Manter o pipeline 100% dentro da aplicação Python (FastAPI + LangGraph) reduz dramaticamente a sobrecarga de infraestrutura, simplificando o deploy e a manutenção.
-2. **Controle Total do Fluxo via Código:** O LangGraph permite estruturar retentativas, fallbacks e ramificações condicionais com máxima clareza em código Python, facilitando a depuração e o rastreamento.
-3. **Desenvolvimento e Testabilidade:** Testar o grafo isoladamente via `pytest` é extremamente direto, acelerando o ciclo de desenvolvimento da v1.0.
