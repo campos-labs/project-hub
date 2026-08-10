@@ -1,5 +1,14 @@
 # Design Architecture: Agente SPED Fiscal
 
+## Status da proposta
+
+**Status:** Concluída — promovida para repositório dedicado.
+A proposta foi validada e avançou para a fase de execução. O desenvolvimento, os testes, a integração contínua e as releases passam a ser gerenciados no repositório:
+
+* campos-labs/agente_sped
+
+Este documento permanece no project-hub como registro histórico da arquitetura aprovada. A documentação vigente do projeto deve ser consultada no repositório dedicado.
+
 ## 🎯 Objetivo (Problema de Negócio)
 
 O sistema resolve a necessidade de consultar dados fiscais de um arquivo SPED Fiscal texto (.txt) usando linguagem natural. O usuário final é um analista fiscal ou desenvolvedor que quer extrair informações como valores faturados, ICMS, quantidades e outros indicadores diretamente do arquivo bruto, sem precisar mapear manualmente as colunas do SPED.
