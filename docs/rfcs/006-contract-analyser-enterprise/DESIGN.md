@@ -112,7 +112,7 @@ flowchart TD
 
 ## 📡 Contratos de API e Workers
 
-* **Recursos:** `/workspaces`/documentos; `/reviews` para iniciar FULL/FOCAL, status/eventos, reanálise e `resume`; `/blocks|evaluations|findings|evidence` para consulta/interação; `/decisions` individual/lote com hash, criticidade e autorização; `/revisions/import`; `/packages/{original|redline|clean-internal|clean-external|manifest|evidence}`.
+* **Recursos:** `/workspaces`/documentos; `/reviews` FULL/FOCAL, status/eventos, reanálise/`resume`; `/blocks|evaluations|findings|evidence` para consulta/interação; `/decisions` individual/lote com hash/autorização; `/revisions/import`; `/packages/{original|redline|clean-internal|clean-external|findings|evidence|manifest|summary}` para snapshots exportados.
 * **Governança/integração:** `/admin/rules` (`simulate|publish|retire`), `/admin/evidence` (`approve|revoke|reindex`), inspectors/evaluations restritos e webhooks versionados; mutações usam idempotency key, controle otimista e Outbox.
 * **Workers:** revisão, resume/reanálise, pacote, ingestão histórica/normativa, simulação de regra, eventos e retenção; correlacionados, persistidos, idempotentes, com retry/dead-letter quando aplicável.
 
@@ -134,7 +134,7 @@ flowchart TD
 1. Workspace processa DOCX principal/relacionados, preserva revisões, declara conteúdo não suportado e mantém Source Trace até unidade/offset.
 2. FULL/FOCAL avaliam `RuleSnapshot`; documentos extensos usam subgrafo hierárquico e passagem global sem truncamento.
 3. LLMs retornam schemas; Python autoriza/executa APIs, cálculos, retrieval, ancoragem e Writer, com estados explícitos de conformidade, achado, inaplicabilidade, indisponibilidade e insuficiência.
-4. Portal entrega blocos, contexto, evidências, interação, lentes, decisões separadas e Hard HITL; Writer gera original, redline, `clean-internal` e `clean-external` íntegros, autoria distinta e round-trip auditável.
+4. Portal entrega blocos, contexto, evidências, interação, lentes, decisões e Hard HITL; `ReviewPackage` preserva o original byte a byte, e o Writer materializa redline, `clean-internal`/`clean-external`, com autoria distinta e round-trip auditável.
 5. Regras, fontes, evidências, feedback e modelos possuem escopo, vigência, snapshots, simulação/regressão e promoção supervisionada; dependências são invalidadas e nenhum pacote stale é tratado como revalidado.
 6. Azure e ambiente local implementam os mesmos ports; CI comprova segurança, resiliência, qualidade semântica, custo, latência, integridade documental e rastreabilidade.
 
