@@ -36,10 +36,17 @@ Automatizar, padronizar e auditar a revisão corporativa de contratos B2B, conve
 ```mermaid
 flowchart LR
  U[Usuário/Sistema] --> WEB[FastAPI + Jinja + HTMX]
- WEB --> PG[(PostgreSQL)] & Q[(Managed Redis)] & B[(Blob Storage)]
+ WEB --> PG[(PostgreSQL)]
+ WEB --> Q[(Managed Redis)]
+ WEB --> B[(Blob Storage)]
  Q --> W[Taskiq Workers] --> LG[LangGraph 1.2+]
- LG --> M[Model Gateway] & S[Azure AI Search] & X[APIs/Fontes] & PG & B
- WEB -. OIDC/RBAC .-> ID[Entra ID]; LG -. traces .-> O[LangSmith + OpenTelemetry]
+ LG --> M[Model Gateway]
+ LG --> S[Azure AI Search]
+ LG --> X[APIs/Fontes]
+ LG --> PG
+ LG --> B
+ WEB -. OIDC/RBAC .-> ID[Entra ID]
+ LG -. traces .-> O[LangSmith + OpenTelemetry]
 ```
 
 Docker; API/UI e workers separados em Azure Container Apps, rede privada e escala HTTP/queue; Docker Compose local. PostgreSQL mantém OLTP, registry, jobs, decisões, auditoria, dependências e `AsyncPostgresSaver`; Blob/MinIO guarda documentos/fontes/pacotes por hash; Redis é broker/cache efêmero; AI Search separa histórico/normas com busca lexical, vetorial e híbrida, filtros e ACL. Managed Identity, RBAC, Key Vault e minimização protegem acessos, segredos e telemetria.
@@ -82,8 +89,15 @@ flowchart TD
  C -->|extenso| H[Structural Partition Planner] --> HS[Hierarchical Review Subgraph: Blocks via Send + Reducer] --> X[Cross-clause Global Pass]
  G --> F[Candidate Findings]; X --> F
  F --> E[Deterministic Enrichment Planner]
- E --> API[APIs] & CALC[Python/Decimal] & RAG[Historical Evidence] & NORM[Normative Sources]
- API --> A[Global Adjudication]; CALC --> A; RAG --> A; NORM --> A; E -->|sem enriquecimento| A
+ E --> API[APIs]
+ E --> CALC[Python/Decimal]
+ E --> RAG[Historical Evidence]
+ E --> NORM[Normative Sources]
+ API --> A[Global Adjudication]
+ CALC --> A
+ RAG --> A
+ NORM --> A
+ E -->|sem enriquecimento| A
  A --> V[Source Policy + Anchor Validator] --> D{Decision Policy Result}
  D -->|crítico/ambíguo| I[interrupt + aprovação] -->|resume| V
  D -->|revisão| UI[Review Workspace] --> W[OOXML ChangeSet Writer]
