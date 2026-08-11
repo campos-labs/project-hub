@@ -26,7 +26,7 @@ Automatizar, padronizar e auditar a revisão corporativa de contratos B2B, conve
 ## 👥 Usuários e Papéis
 
 * **`reviewer`:** cria workspace, revisa, interage, decide achados, solicita redação, reanalisa e exporta; **`approver`:** resolve interrupções, exceções, alçadas, conflitos e mudanças materiais.
-* **`rule_manager`:** elabora, simula, aprova, publica/retira regras, fontes e evidências; **`developer_admin`:** configura adapters, prompts, modelos, índices, retenção, traces, avaliações, conversores e testes adversariais.
+* **`rule_manager`:** elabora/simula e, como checker distinto, aprova/publica/retira regras, fontes e evidências (`author_id != approver_id`; dupla aprovação configurável para itens críticos); **`developer_admin`:** configura adapters, prompts, modelos, índices, retenção, traces, avaliações, conversores e testes adversariais.
 * **Sistemas corporativos:** CLM/ERP/SharePoint/cadastros criam workspaces, fornecem metadados e consomem resultados por APIs/webhooks; serviços externos nunca interagem diretamente com o LLM.
 
 ## 🧩 Modelo de Domínio e Dados
@@ -112,9 +112,9 @@ flowchart TD
 
 ## 📡 Contratos de API e Workers
 
-* **Recursos:** `/workspaces`/documentos; `/reviews` FULL/FOCAL, status/eventos, reanálise/`resume`; `/blocks|evaluations|findings|evidence` para consulta/interação; `/decisions` individual/lote com hash/autorização; `/revisions/import`; `/packages/{original|redline|clean-internal|clean-external|findings|evidence|manifest|summary}` para snapshots exportados.
-* **Governança/integração:** `/admin/rules` (`simulate|publish|retire`), `/admin/evidence` (`approve|revoke|reindex`), inspectors/evaluations restritos e webhooks versionados; mutações usam idempotency key, controle otimista e Outbox.
-* **Workers:** revisão, resume/reanálise, pacote, ingestão histórica/normativa, simulação de regra, eventos e retenção; correlacionados, persistidos, idempotentes, com retry/dead-letter quando aplicável.
+* **Recursos:** `POST /api/v1/workspaces`, `/workspaces/{id}/documents`, `/reviews`; `GET /api/v1/reviews/{id}`, `/blocks`, `/evaluations`, `/findings`, `/evidence`; `POST /api/v1/reviews/{id}/reanalyze|resume`, `/decisions`, `/revisions/import`; `GET /api/v1/packages/{id}/{artifact}` (`original|redline|clean-internal|clean-external|findings|evidence|manifest|summary`).
+* **Governança/integração:** `/api/v1/admin/rules` (`simulate|publish|retire`), `/admin/evidence` (`approve|revoke|reindex`) e webhooks versionados; mutações usam idempotency key, controle otimista e Outbox; schemas Pydantic/OpenAPI são versionados.
+* **Workers:** `review.run|resume|reanalyze`, `package.build`, `evidence.ingest`, `rule.simulate`, `outbox.publish`, `retention.cleanup`; persistidos, correlacionados, idempotentes, com retry/dead-letter quando aplicável.
 
 ## 🛡️ Segurança e Restrições
 
@@ -136,10 +136,11 @@ flowchart TD
 3. LLMs retornam schemas; Python autoriza/executa APIs, cálculos, retrieval, ancoragem e Writer, com estados explícitos de conformidade, achado, inaplicabilidade, indisponibilidade e insuficiência.
 4. Portal entrega blocos, contexto, evidências, interação, lentes, decisões e Hard HITL; `ReviewPackage` preserva o original byte a byte, e o Writer materializa redline, `clean-internal`/`clean-external`, com autoria distinta e round-trip auditável.
 5. Regras, fontes, evidências, feedback e modelos possuem escopo, vigência, snapshots, simulação/regressão e promoção supervisionada; dependências são invalidadas e nenhum pacote stale é tratado como revalidado.
-6. Azure e ambiente local implementam os mesmos ports; CI comprova segurança, resiliência, qualidade semântica, custo, latência, integridade documental e rastreabilidade.
+6. Azure e ambiente local implementam os mesmos ports; cada release passa por gates versionados de segurança, resiliência, qualidade semântica, custo, latência, integridade documental e rastreabilidade, calibrados por Golden datasets e benchmarks homologados.
 
 ## 📎 Referências
 
-* [LangGraph Graph API](https://docs.langchain.com/oss/python/langgraph/use-graph-api), [Subgraphs](https://docs.langchain.com/oss/python/langgraph/use-subgraphs), [Persistence](https://docs.langchain.com/oss/python/langgraph/persistence), [Interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts), [Streaming](https://docs.langchain.com/oss/python/langgraph/event-streaming), [LangChain Structured Output](https://docs.langchain.com/oss/python/langchain/structured-output).
-* [python-docx Comments](https://python-docx.readthedocs.io/en/latest/user/comments.html), [Open XML InsertedRun](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.insertedrun), [Azure AI Search Hybrid/RAG/Access](https://learn.microsoft.com/en-us/azure/search/hybrid-search-overview).
-* [Azure Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/), [Blob + Entra](https://learn.microsoft.com/en-us/azure/storage/blobs/authorize-access-azure-active-directory), [PostgreSQL + Entra](https://learn.microsoft.com/en-us/azure/postgresql/security/security-entra-configure), [LangGraph Checkpointers](https://docs.langchain.com/oss/python/integrations/checkpointers), [Taskiq](https://taskiq-python.github.io/guide/architecture-overview.html), [HTMX SSE](https://htmx.org/extensions/sse/), [LGPD](https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm).
+## 📎 Referências
+
+* [Office Open XML / WordprocessingML](https://learn.microsoft.com/en-us/office/open-xml/word/), fundamento do parsing, comentários e revisões DOCX.
+* [LGPD — Lei nº 13.709/2018](https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm), fundamento de minimização, retenção, controle de acesso e tratamento de dados.
