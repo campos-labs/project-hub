@@ -1,0 +1,887 @@
+# analysis_catalog.yml
+# Catálogo determinístico de análises individuais da v1.0.
+# SQL, roteamento, parâmetros, resultados, narrativa e limitações permanecem
+# centralizados neste arquivo para facilitar revisão e rastreabilidade.
+
+schema_version: "1"
+catalog_version: "1.0.0"
+product_release: "v1.0.0"
+catalog_id: efd_icms_ipi_individual_analyses
+language: pt-BR
+
+sped:
+  type: EFD_ICMS_IPI
+  supported_layouts: ["020"]
+
+loader:
+  apply_defaults_before_validation: true
+  merge_strategy: recursive
+  fail_on_unknown_keys: true
+  fail_on_duplicate_analysis_ids: true
+
+runtime:
+  engine: duckdb
+  execution_scope: single_file
+  parameter_style: duckdb_named
+  statement_type: select
+  access_mode: read_only
+  timeout_seconds: 30
+  max_result_rows: 5000
+  enforcement:
+    require_single_file: true
+    require_single_statement: true
+    allowed_statement_roots: [SELECT, WITH]
+    apply_result_row_limit_before_materialization: true
+    apply_timeout_in_executor: true
+  relation_contract:
+    naming: lowercase_record_code
+    examples: [c100, c170, c190, k230, "0150", "0200"]
+    technical_columns:
+      all: [file_id, record_id, record_code, record_level, source_line]
+      hierarchical: [parent_record_id, parent_record_code]
+    normalized_types:
+      date: DATE
+      monetary: "DECIMAL(18, 2)"
+      quantity: "DECIMAL(18, 6)"
+      integer: BIGINT
+      code: VARCHAR
+      description: VARCHAR
+    empty_relation_policy: create_from_layout
+    notes:
+      - Relações conhecidas devem existir com seu schema mesmo quando não houver ocorrências no arquivo.
+      - parent_record_id representa somente o pai estrutural direto obtido pelo nível e pela ordem da fonte.
+      - Relações semânticas, como C170.COD_ITEM = 0200.COD_ITEM, são declaradas nas consultas.
+
+defaults:
+  version: "1.0.0"
+  status: draft
+  routing: {clarification_required: false}
+  availability: {empty_result_is_valid: true}
+  execution: {engine: duckdb, mode: read_only}
+  result: {shape: table, row_limit: 5000}
+  narrative:
+    input:
+      mode: summarized
+      max_rows: 20
+      include_total_count: true
+      overflow_behavior: deterministic_summary
+  privacy:
+    default_mode: masked
+    protected_targets: [llm_payload, checkpoint, logs]
+    ui_default: masked
+    raw_export_requires_explicit_action: true
+
+parameter_definitions:
+  period_start: &period_start
+    {type: date, required: true, default_from: file_profile.period_start, label: Data inicial}
+  period_end: &period_end
+    {type: date, required: true, default_from: file_profile.period_end, label: Data final}
+
+reference_validation:
+  runtime_enabled: false
+  fixture:
+    file: sped_icms_analysis_reference.txt
+    sped_type: EFD_ICMS_IPI
+    layout: "020"
+    period_start: "2026-01-01"
+    period_end: "2026-01-31"
+    scope: synthetic_reference
+  expected:
+    movement_by_cfop:
+      row_count: 3
+      total_operations: 135015.00
+      displayed_subtotal: 130000.00
+      top_cfops:
+        - {cfop: "5102", total: 70000.00}
+        - {cfop: "6102", total: 40000.00}
+        - {cfop: "5405", total: 20000.00}
+    cancelled_documents:
+      row_count: 6
+      document_numbers: ["2001", "2002", "2003", "2004", "6002", "7002"]
+    block_k_activity:
+      row_count: 3
+      total_distinct_orders: 5
+      daily_distinct_orders: {"2026-01-05": 2, "2026-01-10": 1, "2026-01-15": 2}
+    supplier_concentration:
+      row_count: 1
+      supplier: FORN_A
+      supplier_total: 60000.00
+      total_purchases: 100001.00
+    possible_duplicate_documents:
+      row_count: 1
+      participant: CLI_A
+      series: "1"
+      document_number: "4001"
+      occurrence_count: 2
+    document_sequence_gaps:
+      row_count: 3
+      gaps:
+        - {series: A, first_missing_number: 5003, last_missing_number: 5003}
+        - {series: C, first_missing_number: 7003, last_missing_number: 7003}
+        - {series: D, first_missing_number: 8002, last_missing_number: 8002}
+    generic_ncm_high_value:
+      row_count: 1
+      item_code: ITEM_GEN_ALTO
+      ncm: "99999999"
+      item_value: 15000.00
+    possible_credit_on_consumption_cfop:
+      row_count: 2
+      cfops: ["1556", "2556"]
+      total_icms: 480.00
+
+analyses:
+  # 01
+  movement_by_cfop:
+    display_order: 10
+    title: Movimentação regular de saída por CFOP
+    description: >
+      Calcula o valor das operações regulares de saída no período e apresenta
+      os CFOPs mais relevantes com base no valor de operação do registro C190.
+    routing:
+      utterances:
+        - Qual foi o valor das saídas por CFOP?
+        - Quais foram os CFOPs de saída mais relevantes?
+        - Mostre os três principais CFOPs do período.
+        - Qual foi o total das operações regulares de saída?
+        - Como as saídas estão distribuídas por CFOP?
+        - Quais CFOPs representam a maior movimentação?
+        - Resuma as operações de saída por CFOP.
+    availability:
+      required_records: [C100, C190]
+      required_fields:
+        C100: [IND_OPER, COD_SIT, DT_DOC]
+        C190: [CFOP, VL_OPR]
+    parameters:
+      start_date: *period_start
+      end_date: *period_end
+      top_n: {type: integer, required: false, default: 3, label: Quantidade de CFOPs,
+              constraints: {minimum: 1, maximum: 20}}
+    criteria:
+      - Considera somente documentos de saída, com IND_OPER igual a 1.
+      - Considera COD_SIT 00 e 01 como situações regulares.
+      - Utiliza DT_DOC para limitar o período.
+      - Soma C190.VL_OPR por CFOP.
+      - Exclui documentos cancelados, denegados ou inutilizados.
+      - Calcula o total geral antes de aplicar o limite top_n.
+      - Calcula deterministicamente o subtotal e a cobertura percentual dos CFOPs exibidos.
+    execution:
+      sql: |
+        WITH grouped AS (
+            SELECT c190.cfop, SUM(c190.vl_opr) AS total_operacao
+            FROM c190
+            INNER JOIN c100
+                ON c190.file_id = c100.file_id
+               AND c190.parent_record_id = c100.record_id
+            WHERE c100.ind_oper = '1'
+              AND c100.cod_sit IN ('00', '01')
+              AND c100.dt_doc BETWEEN $start_date AND $end_date
+            GROUP BY c190.cfop
+        ),
+        scored AS (
+            SELECT cfop, total_operacao, SUM(total_operacao) OVER () AS total_operacoes
+            FROM grouped
+        ),
+        ranked AS (
+            SELECT cfop, total_operacao, total_operacoes,
+                   ROW_NUMBER() OVER (ORDER BY total_operacao DESC, cfop) AS rank_position
+            FROM scored
+        ),
+        displayed AS (
+            SELECT cfop, total_operacao, total_operacoes, rank_position
+            FROM ranked
+            WHERE rank_position <= $top_n
+        ),
+        displayed_summary AS (
+            SELECT SUM(total_operacao) AS displayed_subtotal
+            FROM displayed
+        )
+        SELECT d.cfop, d.total_operacao, d.total_operacoes,
+               CAST(ROUND(100.0 * d.total_operacao / NULLIF(d.total_operacoes, 0), 2)
+                    AS DECIMAL(7, 2)) AS participation_percent,
+               s.displayed_subtotal,
+               CAST(ROUND(100.0 * s.displayed_subtotal / NULLIF(d.total_operacoes, 0), 2)
+                    AS DECIMAL(7, 2)) AS displayed_coverage_percent
+        FROM displayed AS d
+        CROSS JOIN displayed_summary AS s
+        ORDER BY d.rank_position
+    result:
+      row_limit: 20
+      columns:
+        - {name: cfop, type: string, label: CFOP}
+        - {name: total_operacao, type: decimal, label: Valor das operações, format: currency_brl}
+        - {name: total_operacoes, type: decimal, label: Total regular de saída, format: currency_brl}
+        - {name: participation_percent, type: decimal, label: Participação, format: percent}
+        - {name: displayed_subtotal, type: decimal, label: Subtotal exibido, format: currency_brl}
+        - {name: displayed_coverage_percent, type: decimal, label: Cobertura exibida, format: percent}
+      empty_message: Não foram encontradas operações regulares de saída no período informado.
+    privacy:
+      sensitive_columns: []
+    narrative:
+      input: {mode: full_result, max_rows: 20, include_total_count: true}
+      instruction: >
+        Informe o total das operações regulares de saída, o subtotal dos CFOPs
+        exibidos e sua cobertura percentual. Destaque os CFOPs em ordem de relevância.
+      must_not:
+        - Recalcular valores.
+        - Classificar as operações como corretas ou incorretas.
+        - Inferir enquadramento tributário apenas pelo CFOP.
+        - Tratar o valor de operação como faturamento contábil definitivo.
+    suggestions:
+      - {analysis_id: cancelled_documents, label: Ver documentos não regulares}
+      - {analysis_id: supplier_concentration, label: Avaliar concentração de fornecedores}
+    limitations:
+      - C190.VL_OPR não representa isoladamente receita contábil, faturamento ou base tributável definitiva.
+      - A interpretação do CFOP depende do produto, operação, UF, regime e legislação aplicável.
+
+  # 02
+  cancelled_documents:
+    display_order: 20
+    title: Documentos cancelados, denegados ou inutilizados
+    description: >
+      Lista documentos fiscais de saída informados no C100 com situações de
+      cancelamento, cancelamento extemporâneo, denegação ou inutilização.
+    routing:
+      utterances:
+        - Liste as notas fiscais canceladas.
+        - Existem documentos de saída cancelados?
+        - Mostre documentos denegados ou inutilizados.
+        - Quais notas possuem situação não regular?
+        - Há documentos cancelados no período?
+        - Liste os C100 com COD_SIT 02, 03, 04 ou 05.
+        - Mostre notas de saída canceladas, denegadas e inutilizadas.
+    availability:
+      required_records: [C100]
+      optional_records: ["0150"]
+      required_fields:
+        C100: [IND_OPER, COD_PART, COD_MOD, COD_SIT, SER, NUM_DOC, CHV_NFE, DT_DOC, VL_DOC]
+      optional_fields:
+        "0150": [COD_PART, NOME]
+    parameters: {start_date: *period_start, end_date: *period_end}
+    criteria:
+      - Considera somente documentos de saída, com IND_OPER igual a 1.
+      - Filtra COD_SIT 02, 03, 04 e 05.
+      - Mantém separadas as diferentes classificações de situação documental.
+      - Utiliza DT_DOC para limitar o período.
+      - Não trata denegação ou inutilização como sinônimos de cancelamento.
+    execution:
+      sql: |
+        SELECT c100.record_id, c100.source_line, c100.cod_part,
+               participant.nome AS participant_name, c100.cod_mod, c100.cod_sit,
+               CASE c100.cod_sit
+                   WHEN '02' THEN 'Cancelado'
+                   WHEN '03' THEN 'Cancelado extemporâneo'
+                   WHEN '04' THEN 'Denegado'
+                   WHEN '05' THEN 'Numeração inutilizada'
+                   ELSE 'Outra situação'
+               END AS document_status,
+               c100.ser, c100.num_doc, c100.chv_nfe, c100.dt_doc, c100.vl_doc
+        FROM c100
+        LEFT JOIN "0150" AS participant
+            ON c100.file_id = participant.file_id
+           AND c100.cod_part = participant.cod_part
+        WHERE c100.ind_oper = '1'
+          AND c100.cod_sit IN ('02', '03', '04', '05')
+          AND c100.dt_doc BETWEEN $start_date AND $end_date
+        ORDER BY c100.dt_doc, c100.ser, TRY_CAST(c100.num_doc AS BIGINT),
+                 c100.num_doc, c100.record_id
+    result:
+      columns:
+        - {name: record_id, type: integer, label: ID do registro}
+        - {name: source_line, type: integer, label: Linha de origem}
+        - {name: cod_part, type: string, label: Participante}
+        - {name: participant_name, type: string, label: Nome do participante}
+        - {name: cod_mod, type: string, label: Modelo}
+        - {name: cod_sit, type: string, label: Código da situação}
+        - {name: document_status, type: string, label: Situação}
+        - {name: ser, type: string, label: Série}
+        - {name: num_doc, type: string, label: Número do documento}
+        - {name: chv_nfe, type: string, label: Chave da NF-e}
+        - {name: dt_doc, type: date, label: Data do documento, format: date_br}
+        - {name: vl_doc, type: decimal, label: Valor do documento, format: currency_brl}
+      empty_message: Não foram encontrados documentos de saída com as situações avaliadas.
+    privacy:
+      sensitive_columns: [cod_part, participant_name, num_doc, chv_nfe]
+    narrative:
+      input:
+        {mode: grouped_sample, group_by: [document_status], max_rows: 20,
+         include_total_count: true, overflow_behavior: deterministic_summary}
+      instruction: >
+        Informe a quantidade de documentos e distribua o resultado por situação.
+        Diferencie cancelamento, cancelamento extemporâneo, denegação e inutilização.
+      must_not:
+        - Afirmar que o documento foi escriturado incorretamente.
+        - Tratar denegação ou inutilização como cancelamento comum.
+        - Expor chaves ou identificadores sem mascaramento.
+    suggestions:
+      - {analysis_id: document_sequence_gaps, label: Verificar lacunas de numeração}
+      - {analysis_id: possible_duplicate_documents, label: Verificar possíveis duplicidades}
+    limitations:
+      - O significado operacional de cada COD_SIT depende do modelo, do período e do leiaute aplicável.
+      - O registro demonstra a informação escriturada, não o estado atual em sistemas externos.
+
+  # 03
+  block_k_activity:
+    display_order: 30
+    title: Atividade e ordens de produção no Bloco K
+    description: >
+      Identifica atividade no registro K230 e resume, por data de início,
+      a quantidade de ordens distintas, linhas informadas e quantidades encerradas.
+    routing:
+      utterances:
+        - Há movimentação no Bloco K?
+        - Quantas ordens de produção foram informadas?
+        - Resuma as ordens do K230.
+        - Existe atividade de produção no arquivo?
+        - Quantas ordens distintas existem por data?
+        - Mostre a movimentação do Bloco K.
+        - Há registros K230?
+    availability:
+      required_records: [K230]
+      required_fields:
+        K230: [DT_INI_OP, COD_DOC_OP, COD_ITEM, QTD_ENC]
+      record_presence_required: false
+    parameters: {start_date: *period_start, end_date: *period_end}
+    criteria:
+      - Considera registros K230 dentro do período.
+      - Conta COD_DOC_OP de forma distinta por data.
+      - Calcula separadamente o total global de ordens distintas no período.
+      - Mantém a quantidade de linhas separada da quantidade de ordens.
+      - Soma QTD_ENC apenas como informação auxiliar.
+    execution:
+      sql: |
+        WITH scoped AS (
+            SELECT dt_ini_op, cod_doc_op, cod_item, qtd_enc
+            FROM k230
+            WHERE dt_ini_op BETWEEN $start_date AND $end_date
+        ),
+        daily_activity AS (
+            SELECT dt_ini_op,
+                   COUNT(DISTINCT NULLIF(TRIM(cod_doc_op), '')) AS distinct_order_count,
+                   COUNT(*) AS record_count,
+                   SUM(qtd_enc) AS total_finished_quantity
+            FROM scoped
+            GROUP BY dt_ini_op
+        ),
+        period_total AS (
+            SELECT COUNT(DISTINCT NULLIF(TRIM(cod_doc_op), '')) AS total_distinct_orders
+            FROM scoped
+        )
+        SELECT daily.dt_ini_op, daily.distinct_order_count, daily.record_count,
+               daily.total_finished_quantity, total.total_distinct_orders
+        FROM daily_activity AS daily
+        CROSS JOIN period_total AS total
+        ORDER BY daily.dt_ini_op
+    result:
+      row_limit: 1000
+      columns:
+        - {name: dt_ini_op, type: date, label: Data de início, format: date_br}
+        - {name: distinct_order_count, type: integer, label: Ordens distintas}
+        - {name: record_count, type: integer, label: Linhas K230}
+        - {name: total_finished_quantity, type: decimal, label: Quantidade encerrada, format: quantity}
+        - {name: total_distinct_orders, type: integer, label: Total de ordens distintas no período}
+      empty_message: Não foram encontrados registros K230 no período informado.
+    privacy:
+      sensitive_columns: []
+    narrative:
+      input: {mode: full_result, max_rows: 20, include_total_count: true}
+      instruction: >
+        Informe se existe atividade no K230. Diferencie a quantidade de ordens
+        distintas da quantidade de linhas e destaque datas com repetição de ordem.
+      must_not:
+        - Tratar cada linha K230 como uma ordem diferente.
+        - Somar contagens diárias para calcular o total global de ordens distintas.
+        - Inferir capacidade produtiva ou eficiência operacional.
+        - Concluir que a ausência de K230 representa irregularidade.
+    suggestions:
+      - {analysis_id: movement_by_cfop, label: Ver movimentação de saída por CFOP}
+      - {analysis_id: generic_ncm_high_value, label: Avaliar itens com NCM genérico}
+    limitations:
+      - A análise considera somente o registro K230 e não consolida todos os registros possíveis do Bloco K.
+      - A interpretação das quantidades depende da unidade e do contexto dos itens e das ordens.
+
+  # 04
+  supplier_concentration:
+    display_order: 40
+    title: Concentração individual de fornecedores
+    description: >
+      Calcula a participação de cada fornecedor no valor total dos documentos
+      regulares de entrada e retorna fornecedores acima do limite informado.
+    routing:
+      utterances:
+        - Algum fornecedor concentra mais de 50% das compras?
+        - Qual é o fornecedor mais relevante?
+        - Existe concentração de compras por fornecedor?
+        - Mostre fornecedores acima do limite de concentração.
+        - Como o valor das entradas está distribuído por fornecedor?
+        - Quais fornecedores representam a maior parte das compras?
+        - Há dependência excessiva de um fornecedor?
+    availability:
+      required_records: [C100]
+      optional_records: ["0150"]
+      required_fields:
+        C100: [IND_OPER, IND_EMIT, COD_PART, COD_SIT, DT_DOC, VL_DOC]
+      optional_fields:
+        "0150": [COD_PART, NOME]
+    parameters:
+      start_date: *period_start
+      end_date: *period_end
+      threshold_percent:
+        {type: decimal, required: false, default: 50.0, label: Limite de concentração,
+         constraints: {minimum: 0.0, maximum: 100.0}}
+    criteria:
+      - Considera documentos de entrada, com IND_OPER igual a 0.
+      - Considera documentos emitidos por terceiros, com IND_EMIT igual a 1.
+      - Considera COD_SIT 00 e 01.
+      - Soma C100.VL_DOC por participante.
+      - Exclui documentos cancelados do numerador e do denominador.
+      - Mede participação individual, não concentração acumulada.
+    execution:
+      sql: |
+        WITH purchase_documents AS (
+            SELECT file_id, record_id, cod_part, vl_doc
+            FROM c100
+            WHERE ind_oper = '0'
+              AND ind_emit = '1'
+              AND cod_sit IN ('00', '01')
+              AND dt_doc BETWEEN $start_date AND $end_date
+              AND cod_part IS NOT NULL
+              AND TRIM(cod_part) <> ''
+        ),
+        purchase_totals AS (
+            SELECT file_id, SUM(vl_doc) AS total_purchases
+            FROM purchase_documents
+            GROUP BY file_id
+        ),
+        supplier_totals AS (
+            SELECT file_id, cod_part, COUNT(*) AS document_count,
+                   SUM(vl_doc) AS supplier_total
+            FROM purchase_documents
+            GROUP BY file_id, cod_part
+        )
+        SELECT suppliers.cod_part, participant.nome AS participant_name,
+               suppliers.document_count, suppliers.supplier_total, totals.total_purchases,
+               CAST(ROUND(100.0 * suppliers.supplier_total / NULLIF(totals.total_purchases, 0), 2)
+                    AS DECIMAL(7, 2)) AS participation_percent
+        FROM supplier_totals AS suppliers
+        INNER JOIN purchase_totals AS totals
+            ON suppliers.file_id = totals.file_id
+        LEFT JOIN "0150" AS participant
+            ON suppliers.file_id = participant.file_id
+           AND suppliers.cod_part = participant.cod_part
+        WHERE 100.0 * suppliers.supplier_total
+              / NULLIF(totals.total_purchases, 0) > $threshold_percent
+        ORDER BY participation_percent DESC, suppliers.supplier_total DESC, suppliers.cod_part
+    result:
+      row_limit: 1000
+      columns:
+        - {name: cod_part, type: string, label: Código do fornecedor}
+        - {name: participant_name, type: string, label: Fornecedor}
+        - {name: document_count, type: integer, label: Quantidade de documentos}
+        - {name: supplier_total, type: decimal, label: Valor do fornecedor, format: currency_brl}
+        - {name: total_purchases, type: decimal, label: Total das compras, format: currency_brl}
+        - {name: participation_percent, type: decimal, label: Participação, format: percent}
+      empty_message: Nenhum fornecedor individual ultrapassou o limite de concentração.
+    privacy:
+      sensitive_columns: [cod_part, participant_name]
+    narrative:
+      input: {mode: full_result, max_rows: 20, include_total_count: true}
+      instruction: >
+        Informe o total das compras regulares e os fornecedores que superaram
+        o limite. Apresente participação individual e quantidade de documentos.
+      must_not:
+        - Afirmar dependência econômica comprovada.
+        - Classificar a concentração como irregular.
+        - Somar documentos cancelados.
+        - Expor a identidade real do fornecedor sem mascaramento.
+    suggestions:
+      - {analysis_id: possible_duplicate_documents, label: Verificar possíveis duplicidades}
+      - {analysis_id: movement_by_cfop, label: Ver movimentação por CFOP}
+    limitations:
+      - A concentração considera somente documentos presentes no arquivo.
+      - C100.VL_DOC não representa necessariamente custo contábil líquido ou desembolso financeiro.
+      - Contratos, pedidos, pagamentos e compras não escrituradas não são considerados.
+
+  # 05
+  possible_duplicate_documents:
+    display_order: 50
+    title: Possíveis documentos fiscais duplicados
+    description: >
+      Identifica grupos com mais de um C100 para a mesma combinação de
+      participante, modelo, série, número, data e indicador de operação.
+    routing:
+      utterances:
+        - Existem notas fiscais duplicadas?
+        - Há documentos repetidos no C100?
+        - Mostre possíveis duplicidades.
+        - Algum documento foi registrado mais de uma vez?
+        - Existem números repetidos para o mesmo participante?
+        - Verifique documentos com a mesma série, número e data.
+        - Há possíveis lançamentos duplicados?
+    availability:
+      required_records: [C100]
+      optional_records: ["0150"]
+      required_fields:
+        C100: [IND_OPER, COD_PART, COD_MOD, COD_SIT, SER, NUM_DOC, CHV_NFE, DT_DOC, VL_DOC]
+      optional_fields:
+        "0150": [COD_PART, NOME]
+    parameters: {start_date: *period_start, end_date: *period_end}
+    criteria:
+      - Agrupa por participante, modelo, série, número, data e tipo de operação.
+      - Considera registros de diferentes situações documentais.
+      - Retorna somente grupos com mais de uma ocorrência.
+      - Compara quantidade de chaves, situações e valores distintos.
+      - Classifica o resultado como duplicidade potencial.
+    execution:
+      sql: |
+        WITH duplicate_groups AS (
+            SELECT file_id, cod_part, cod_mod,
+                   COALESCE(NULLIF(TRIM(ser), ''), 'SEM_SERIE') AS ser,
+                   num_doc, dt_doc, ind_oper, COUNT(*) AS occurrence_count,
+                   COUNT(DISTINCT NULLIF(TRIM(chv_nfe), '')) AS distinct_access_key_count,
+                   COUNT(DISTINCT cod_sit) AS distinct_status_count,
+                   MIN(cod_sit) AS minimum_status_code, MAX(cod_sit) AS maximum_status_code,
+                   MIN(vl_doc) AS minimum_document_value,
+                   MAX(vl_doc) AS maximum_document_value,
+                   MIN(source_line) AS first_source_line,
+                   MAX(source_line) AS last_source_line,
+                   MIN(record_id) AS first_record_id,
+                   MAX(record_id) AS last_record_id
+            FROM c100
+            WHERE dt_doc BETWEEN $start_date AND $end_date
+            GROUP BY file_id, cod_part, cod_mod,
+                     COALESCE(NULLIF(TRIM(ser), ''), 'SEM_SERIE'),
+                     num_doc, dt_doc, ind_oper
+            HAVING COUNT(*) > 1
+        )
+        SELECT duplicates.cod_part, participant.nome AS participant_name,
+               duplicates.cod_mod, duplicates.ser, duplicates.num_doc,
+               duplicates.dt_doc, duplicates.ind_oper, duplicates.occurrence_count,
+               duplicates.distinct_access_key_count, duplicates.distinct_status_count,
+               duplicates.minimum_status_code, duplicates.maximum_status_code,
+               duplicates.minimum_document_value, duplicates.maximum_document_value,
+               duplicates.first_source_line, duplicates.last_source_line,
+               duplicates.first_record_id, duplicates.last_record_id
+        FROM duplicate_groups AS duplicates
+        LEFT JOIN "0150" AS participant
+            ON duplicates.file_id = participant.file_id
+           AND duplicates.cod_part = participant.cod_part
+        ORDER BY duplicates.occurrence_count DESC, duplicates.dt_doc, duplicates.ser,
+                 TRY_CAST(duplicates.num_doc AS BIGINT), duplicates.num_doc
+    result:
+      columns:
+        - {name: cod_part, type: string, label: Participante}
+        - {name: participant_name, type: string, label: Nome do participante}
+        - {name: cod_mod, type: string, label: Modelo}
+        - {name: ser, type: string, label: Série}
+        - {name: num_doc, type: string, label: Número do documento}
+        - {name: dt_doc, type: date, label: Data, format: date_br}
+        - {name: ind_oper, type: string, label: Tipo de operação}
+        - {name: occurrence_count, type: integer, label: Ocorrências}
+        - {name: distinct_access_key_count, type: integer, label: Chaves distintas}
+        - {name: distinct_status_count, type: integer, label: Situações distintas}
+        - {name: minimum_status_code, type: string, label: Menor código de situação}
+        - {name: maximum_status_code, type: string, label: Maior código de situação}
+        - {name: minimum_document_value, type: decimal, label: Menor valor, format: currency_brl}
+        - {name: maximum_document_value, type: decimal, label: Maior valor, format: currency_brl}
+        - {name: first_source_line, type: integer, label: Primeira linha}
+        - {name: last_source_line, type: integer, label: Última linha}
+        - {name: first_record_id, type: integer, label: Primeiro ID}
+        - {name: last_record_id, type: integer, label: Último ID}
+      empty_message: Não foram encontrados grupos com possíveis documentos duplicados.
+    privacy:
+      sensitive_columns: [cod_part, participant_name, num_doc]
+    narrative:
+      input: {mode: sampled_result, max_rows: 20, include_total_count: true}
+      instruction: >
+        Apresente os grupos como possíveis duplicidades. Destaque ocorrências,
+        diferenças de chave, situação e valor e indique as linhas de origem.
+      must_not:
+        - Afirmar que houve erro ou duplicidade comprovada.
+        - Afirmar que um documento deve ser excluído.
+        - Expor participantes ou documentos sem mascaramento.
+    suggestions:
+      - {analysis_id: document_sequence_gaps, label: Verificar lacunas de numeração}
+      - {analysis_id: cancelled_documents, label: Ver documentos não regulares}
+    limitations:
+      - A combinação utilizada é um critério de triagem e pode encontrar repetições legítimas.
+      - Outras formas de duplicidade podem não ser capturadas.
+      - A confirmação exige análise de chaves, situações, valores, linhas e contexto.
+
+  # 06
+  document_sequence_gaps:
+    display_order: 60
+    title: Possíveis lacunas no sequencial de documentos
+    description: >
+      Identifica intervalos ausentes entre números de documentos de saída e
+      emissão própria, separados por modelo e série, considerando documentos
+      cancelados, denegados ou inutilizados como números presentes.
+    routing:
+      utterances:
+        - Existem lacunas na numeração das notas?
+        - Há números de documentos ausentes?
+        - Verifique o sequencial das notas emitidas.
+        - Existem saltos na sequência por série?
+        - Mostre intervalos faltantes na numeração.
+        - Há lacunas não justificadas nos documentos?
+        - Analise a continuidade dos números das notas.
+    availability:
+      required_records: [C100]
+      required_fields:
+        C100: [IND_OPER, IND_EMIT, COD_MOD, COD_SIT, SER, NUM_DOC, DT_DOC]
+    parameters:
+      start_date: *period_start
+      end_date: *period_end
+      max_gap_size:
+        {type: integer, required: false, default: 20, label: Maior intervalo ausente exibido,
+         constraints: {minimum: 1, maximum: 10000}}
+    criteria:
+      - Considera documentos de saída, com IND_OPER igual a 1.
+      - Considera documentos de emissão própria, com IND_EMIT igual a 0.
+      - Separa as sequências por modelo e série.
+      - Considera números presentes em COD_SIT 00, 01, 02, 03, 04 e 05.
+      - Remove ocorrências duplicadas antes de calcular a sequência.
+      - Ignora números que não possam ser convertidos para inteiro.
+      - Limita os intervalos exibidos por max_gap_size.
+    execution:
+      sql: |
+        WITH scoped_documents AS (
+            SELECT DISTINCT file_id, cod_mod,
+                   COALESCE(NULLIF(TRIM(ser), ''), 'SEM_SERIE') AS ser,
+                   TRY_CAST(num_doc AS BIGINT) AS document_number
+            FROM c100
+            WHERE ind_oper = '1'
+              AND ind_emit = '0'
+              AND cod_sit IN ('00', '01', '02', '03', '04', '05')
+              AND dt_doc BETWEEN $start_date AND $end_date
+              AND TRY_CAST(num_doc AS BIGINT) IS NOT NULL
+              AND TRY_CAST(num_doc AS BIGINT) > 0
+        ),
+        sequenced_documents AS (
+            SELECT file_id, cod_mod, ser, document_number,
+                   LEAD(document_number) OVER (
+                       PARTITION BY file_id, cod_mod, ser
+                       ORDER BY document_number
+                   ) AS next_document_number
+            FROM scoped_documents
+        ),
+        gaps AS (
+            SELECT cod_mod, ser, document_number AS previous_document_number,
+                   next_document_number,
+                   document_number + 1 AS first_missing_number,
+                   next_document_number - 1 AS last_missing_number,
+                   next_document_number - document_number - 1 AS missing_count
+            FROM sequenced_documents
+            WHERE next_document_number IS NOT NULL
+              AND next_document_number - document_number > 1
+        )
+        SELECT cod_mod, ser, previous_document_number, next_document_number,
+               first_missing_number, last_missing_number, missing_count
+        FROM gaps
+        WHERE missing_count <= $max_gap_size
+        ORDER BY cod_mod, ser, previous_document_number
+    result:
+      columns:
+        - {name: cod_mod, type: string, label: Modelo}
+        - {name: ser, type: string, label: Série}
+        - {name: previous_document_number, type: integer, label: Documento anterior}
+        - {name: next_document_number, type: integer, label: Documento seguinte}
+        - {name: first_missing_number, type: integer, label: Primeiro número ausente}
+        - {name: last_missing_number, type: integer, label: Último número ausente}
+        - {name: missing_count, type: integer, label: Quantidade ausente}
+      empty_message: Não foram encontradas lacunas dentro do limite configurado.
+    privacy:
+      sensitive_columns:
+        [previous_document_number, next_document_number, first_missing_number, last_missing_number]
+    narrative:
+      input: {mode: sampled_result, max_rows: 20, include_total_count: true}
+      instruction: >
+        Liste os intervalos ausentes por modelo e série. Informe que documentos
+        não regulares presentes no C100 foram considerados números existentes.
+      must_not:
+        - Afirmar que a lacuna representa irregularidade.
+        - Misturar séries ou modelos.
+        - Considerar documentos de terceiros como justificativa para emissão própria.
+        - Expor números reais sem mascaramento.
+    suggestions:
+      - {analysis_id: cancelled_documents, label: Conferir documentos não regulares}
+      - {analysis_id: possible_duplicate_documents, label: Verificar possíveis duplicidades}
+    limitations:
+      - max_gap_size reduz ruído, mas pode ocultar intervalos maiores que o limite configurado.
+      - A análise utiliza somente números presentes no arquivo.
+      - Inutilizações existentes apenas em fontes externas não são conhecidas.
+      - Reinícios legítimos de sequência e regras por modelo ou UF exigem contexto adicional.
+
+  # 07
+  generic_ncm_high_value:
+    display_order: 70
+    title: Itens de alto valor com NCM genérico
+    description: >
+      Identifica itens de documentos regulares cujo cadastro no 0200 utiliza
+      um NCM tratado pelo catálogo como genérico e cujo valor ultrapassa o limite.
+    routing:
+      utterances:
+        - Existem itens de alto valor com NCM genérico?
+        - Mostre produtos com NCM 99999999.
+        - Há itens genéricos acima de dez mil reais?
+        - Verifique NCM genérico nos itens das notas.
+        - Quais itens com NCM genérico possuem valor elevado?
+        - Existem produtos de alto valor sem classificação específica?
+        - Liste itens com NCM genérico acima do limite.
+    availability:
+      required_records: [C100, C170, "0200"]
+      required_fields:
+        C100: [COD_PART, COD_SIT, SER, NUM_DOC, DT_DOC]
+        C170: [COD_ITEM, VL_ITEM]
+        "0200": [COD_ITEM, DESCR_ITEM, COD_NCM]
+    parameters:
+      start_date: *period_start
+      end_date: *period_end
+      min_item_value:
+        {type: decimal, required: false, default: 10000.00, label: Valor mínimo do item,
+         constraints: {minimum: 0.00}}
+    criteria:
+      - Relaciona C170 ao seu C100 pelo parent_record_id.
+      - Relaciona C170 ao 0200 por COD_ITEM.
+      - Considera somente documentos com COD_SIT 00 e 01.
+      - Considera como genéricos os códigos 00000000 e 99999999.
+      - Exige C170.VL_ITEM estritamente maior que min_item_value.
+      - Exclui itens pertencentes a documentos cancelados.
+    execution:
+      sql: |
+        SELECT c170.record_id, c170.source_line, c100.cod_part, c100.ser,
+               c100.num_doc, c100.dt_doc, c170.cod_item, item.descr_item,
+               item.cod_ncm, c170.vl_item
+        FROM c170
+        INNER JOIN c100
+            ON c170.file_id = c100.file_id
+           AND c170.parent_record_id = c100.record_id
+        INNER JOIN "0200" AS item
+            ON c170.file_id = item.file_id
+           AND c170.cod_item = item.cod_item
+        WHERE c100.cod_sit IN ('00', '01')
+          AND c100.dt_doc BETWEEN $start_date AND $end_date
+          AND item.cod_ncm IN ('00000000', '99999999')
+          AND c170.vl_item > $min_item_value
+        ORDER BY c170.vl_item DESC, c100.dt_doc, c100.ser,
+                 TRY_CAST(c100.num_doc AS BIGINT), c100.num_doc, c170.record_id
+    result:
+      columns:
+        - {name: record_id, type: integer, label: ID do item}
+        - {name: source_line, type: integer, label: Linha de origem}
+        - {name: cod_part, type: string, label: Participante}
+        - {name: ser, type: string, label: Série}
+        - {name: num_doc, type: string, label: Documento}
+        - {name: dt_doc, type: date, label: Data, format: date_br}
+        - {name: cod_item, type: string, label: Código do item}
+        - {name: descr_item, type: string, label: Descrição do item}
+        - {name: cod_ncm, type: string, label: NCM}
+        - {name: vl_item, type: decimal, label: Valor do item, format: currency_brl}
+      empty_message: Não foram encontrados itens regulares com NCM genérico acima do limite.
+    privacy:
+      sensitive_columns: [cod_part, num_doc]
+    narrative:
+      input: {mode: sampled_result, max_rows: 20, include_total_count: true}
+      instruction: >
+        Apresente os itens encontrados e o limite utilizado. Explique que o código
+        foi tratado pelo catálogo como genérico e representa indicador de revisão.
+      must_not:
+        - Afirmar que o NCM está incorreto.
+        - Sugerir automaticamente um NCM substituto.
+        - Concluir infração ou risco tributário sem contexto adicional.
+        - Expor participantes ou documentos sem mascaramento.
+    suggestions:
+      - {analysis_id: possible_credit_on_consumption_cfop, label: Verificar créditos em uso e consumo}
+      - {analysis_id: supplier_concentration, label: Avaliar concentração de fornecedores}
+    limitations:
+      - A análise utiliza uma lista explícita de códigos genéricos.
+      - Outros códigos potencialmente imprecisos dependem de regras adicionais.
+      - A classificação correta depende das características, composição e finalidade do produto.
+
+  # 08
+  possible_credit_on_consumption_cfop:
+    display_order: 80
+    title: Possível crédito em CFOP de uso ou consumo
+    description: >
+      Identifica documentos regulares de entrada com CFOP 1556 ou 2556 no C190
+      e valor de ICMS superior a zero, para investigação do tratamento adotado.
+    routing:
+      utterances:
+        - Existem créditos de ICMS em compras para uso ou consumo?
+        - Mostre entradas com CFOP 1556 e ICMS.
+        - Há crédito no CFOP 2556?
+        - Verifique possíveis créditos em material de uso e consumo.
+        - Existem C190 de consumo com valor de ICMS?
+        - Liste candidatos a crédito de ICMS em uso ou consumo.
+        - Há entradas para consumo com ICMS informado?
+    availability:
+      required_records: [C100, C190]
+      optional_records: ["0150"]
+      required_fields:
+        C100: [IND_OPER, COD_PART, COD_SIT, SER, NUM_DOC, DT_DOC]
+        C190: [CST_ICMS, CFOP, VL_OPR, VL_BC_ICMS, VL_ICMS]
+      optional_fields:
+        "0150": [COD_PART, NOME]
+    parameters: {start_date: *period_start, end_date: *period_end}
+    criteria:
+      - Considera documentos de entrada, com IND_OPER igual a 0.
+      - Considera documentos com COD_SIT 00 e 01.
+      - Filtra CFOP 1556 e 2556.
+      - Exige C190.VL_ICMS superior a zero.
+      - Retorna CST, valor da operação, base e valor do ICMS.
+      - Classifica o resultado como candidato para investigação.
+    execution:
+      sql: |
+        SELECT c190.record_id, c190.source_line, c100.cod_part,
+               participant.nome AS participant_name, c100.ser, c100.num_doc,
+               c100.dt_doc, c190.cst_icms, c190.cfop, c190.vl_opr,
+               c190.vl_bc_icms, c190.vl_icms
+        FROM c190
+        INNER JOIN c100
+            ON c190.file_id = c100.file_id
+           AND c190.parent_record_id = c100.record_id
+        LEFT JOIN "0150" AS participant
+            ON c100.file_id = participant.file_id
+           AND c100.cod_part = participant.cod_part
+        WHERE c100.ind_oper = '0'
+          AND c100.cod_sit IN ('00', '01')
+          AND c100.dt_doc BETWEEN $start_date AND $end_date
+          AND c190.cfop IN ('1556', '2556')
+          AND COALESCE(c190.vl_icms, 0) > 0
+        ORDER BY c190.vl_icms DESC, c100.dt_doc, c100.ser,
+                 TRY_CAST(c100.num_doc AS BIGINT), c100.num_doc, c190.record_id
+    result:
+      columns:
+        - {name: record_id, type: integer, label: ID do registro analítico}
+        - {name: source_line, type: integer, label: Linha de origem}
+        - {name: cod_part, type: string, label: Participante}
+        - {name: participant_name, type: string, label: Nome do participante}
+        - {name: ser, type: string, label: Série}
+        - {name: num_doc, type: string, label: Documento}
+        - {name: dt_doc, type: date, label: Data, format: date_br}
+        - {name: cst_icms, type: string, label: CST do ICMS}
+        - {name: cfop, type: string, label: CFOP}
+        - {name: vl_opr, type: decimal, label: Valor da operação, format: currency_brl}
+        - {name: vl_bc_icms, type: decimal, label: Base de cálculo do ICMS, format: currency_brl}
+        - {name: vl_icms, type: decimal, label: Valor do ICMS, format: currency_brl}
+      empty_message: Não foram encontrados candidatos com CFOP 1556 ou 2556 e ICMS positivo.
+    privacy:
+      sensitive_columns: [cod_part, participant_name, num_doc]
+    narrative:
+      input:
+        {mode: grouped_sample, group_by: [cfop, cst_icms], max_rows: 20,
+         include_total_count: true, overflow_behavior: deterministic_summary}
+      instruction: >
+        Apresente os documentos como candidatos para investigação. Informe CFOP,
+        CST, valor da operação, base e ICMS sem concluir que o crédito é indevido.
+      must_not:
+        - Afirmar que o crédito é indevido.
+        - Recomendar estorno automático.
+        - Inferir a finalidade do item somente pelo CFOP.
+        - Expor participantes ou documentos sem mascaramento.
+    suggestions:
+      - {analysis_id: generic_ncm_high_value, label: Verificar itens com NCM genérico}
+      - {analysis_id: movement_by_cfop, label: Ver movimentação por CFOP}
+    limitations:
+      - A presença de ICMS no C190 é critério de triagem e não comprova apropriação efetiva.
+      - A conclusão depende do período, finalidade, regime, legislação, ajustes e estornos.
+      - A análise não examina todos os registros que podem afetar a apuração do crédito.
