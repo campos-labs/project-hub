@@ -2,7 +2,7 @@
 
 ## 🎯 Objetivo (Problema de Negócio)
 
-O Agente SPED Fiscal permite que analistas executem análises rastreáveis sobre arquivos EFD ICMS/IPI (TXT) sem necessidade de mapeamento manual de posições e relacionamentos do leiaute. 
+O Agente SPED Fiscal permite que analistas executem análises rastreáveis sobre arquivos EFD ICMS/IPI (TXT) sem necessidade de mapeamento manual de posições e relacionamentos do leiaute.
 
 O sistema opera com um **conjunto controlado e versionado de análises catalogadas**, executadas de forma **reproduzível** sobre um workspace local. A Inteligência Artificial atua estritamente como apoio ao roteamento de intenções e à explicação narrativa de resultados que já foram calculados de forma determinística. 
 
@@ -56,7 +56,7 @@ O produto auxilia a investigação técnica. Ele não substitui o Programa Valid
 
 ## 📡 Contratos de API e Integrações
 
-Não há exposição de API REST pública ou webhooks assíncronos. A superfície HTTP atua como suporte exclusivo da interface visual nativa local. A integração de rede ocorre pontualmente via SDK *outbound* com o provedor de IA (LLM), caso configurado.
+Não há exposição de API REST pública ou webhooks assíncronos. A superfície HTTP é exclusiva da interface visual local e deve operar apenas em localhost (127.0.0.1/::1), sem exposição externa. A integração de rede ocorre pontualmente via SDK *outbound* com o provedor de IA (LLM), caso configurado.
 
 ## 🛡️ Segurança e Rastreabilidade
 
@@ -77,6 +77,6 @@ Não há exposição de API REST pública ou webhooks assíncronos. A superfíci
 
 ## 📎 Referências
 
-* **Manuais e Guias Práticos da EFD ICMS/IPI:** [Página oficial de índice do Portal SPED](http://sped.rfb.gov.br/pasta/show/1573).
+* **Manuais e Guias Práticos da EFD ICMS/IPI:** [Página oficial de índice do Portal SPED](https://sped.rfb.gov.br/pasta/show/1573).
 * **Guia Prático vigente da EFD ICMS/IPI:** Acessado por meio da página oficial de Manuais e Guias Práticos.
 * **Nota Técnica 2025.001:** Relacionada à vigência e adequações estruturais do leiaute `020`.
