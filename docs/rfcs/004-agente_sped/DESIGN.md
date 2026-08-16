@@ -78,5 +78,5 @@ Não há exposição de API REST pública ou webhooks assíncronos. A superfíci
 ## 📎 Referências
 
 * **Manuais e Guias Práticos da EFD ICMS/IPI:** [Página oficial de índice do Portal SPED](https://sped.rfb.gov.br/pasta/show/1573).
-* **Guia Prático vigente da EFD ICMS/IPI:** Acessado por meio da página oficial de Manuais e Guias Práticos.
-* **Nota Técnica 2025.001:** Relacionada à vigência e adequações estruturais do leiaute `020`.
+* **Guia Prático vigente da EFD ICMS/IPI:** [Guia Prático EFD ICMS/IPI versão 3.2.3 (publicado em 28/06/2026; vigência a partir de jan/2027)](https://www.gov.br/receitafederal/pt-br/assuntos/sped/downloads/efd-icms-ipi/guias-praticos/guia-pratico-efd-icms-ipi-versao-3-2-3.pdf).
+* **Nota Técnica 2025.001:** [Nota Técnica EFD ICMS/IPI 2025.001 v1.0 (leiaute `020`; vigência de 01/01/2026 a 31/12/2026)](https://www.gov.br/receitafederal/pt-br/assuntos/sped/downloads/efd-icms-ipi/notas-tecnicas/nota-tecnica-efd-icms-ipi-2025-001-v-1-0.pdf).
