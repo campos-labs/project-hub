@@ -33,7 +33,7 @@ O produto auxilia a investigação técnica. Ele não substitui o Programa Valid
 
 ## 🧩 Modelo de Domínio e Dados
 
-* **Premissas Arquiteturais:** O sistema **opera com um arquivo por workspace**. Ingestão, parsing, staging, cálculos e resultados completos permanecem no ambiente local. **Quando habilitado, o provedor externo recebe somente o payload narrativo permitido pelo Catálogo de Análises.** Regras e parâmetros são tratados por código determinístico, e as consultas catalogadas são executadas no DuckDB. A IA não recalcula nem altera valores. A superfície de interação é local, utiliza os mesmos serviços de aplicação e exige uma ação explícita do usuário para cada execução analítica.
+* **Premissas Arquiteturais:** O sistema opera com um arquivo por workspace. Arquivo bruto, parsing, staging, cálculos e resultados completos permanecem no ambiente local. Quando habilitado, o provedor externo recebe apenas dados minimizados da pergunta para roteamento ou o `NarrativePayload` permitido pelo Catálogo de Análises. Regras e parâmetros são tratados por código determinístico, e as consultas catalogadas são executadas no DuckDB. A IA não recalcula nem altera valores. A interação é local e exige ação explícita do usuário para cada execução analítica.
 
 ### Contratos Estruturais
 * **Workspace:** Isola uma sessão analítica (workspace_id, file_id, versão do leiaute, caminho do DuckDB e status).
@@ -74,7 +74,7 @@ Não há exposição de API REST pública ou webhooks assíncronos. A integraç�
 
 * **Testes:** Os testes devem cobrir leiaute não suportado, parsing e hierarquia, validação de parâmetros, disponibilidade, resultado vazio, resultados de referência das análises catalogadas, consultas não permitidas, mascaramento, truncamento, saída assistida inválida, roteamento determinístico e fallback sem provedor.
 * **Observabilidade:** Logs registram identificadores técnicos, versão do leiaute, analysis_id, versão da análise, duração, quantidade de linhas, modo narrativo e erros higienizados. Não registram secrets, arquivo bruto, resultados completos ou payloads sensíveis.
-* **Definition of Done (DoD):** O parsing reconstrói a estrutura com tipagem válida. A materialização em DuckDB opera sem vazamento de dados analíticos sensíveis e processa com `status=ok` as consultas limitadas. O provedor externo, se ativado, interpreta e devolve intenções estruturadas sem acesso livre de leitura/escrita à base local.
+* **Definition of Done (DoD):** O parsing reconstrói a estrutura com tipagem válida. A materialização prepara as relações no DuckDB e o executor processa com `status=ok` as consultas catalogadas e limitadas. O provedor externo, se ativado, interpreta e devolve intenções estruturadas sem acesso livre de leitura/escrita à base local.
 
 ## 📎 Referências
 
