@@ -67,6 +67,7 @@ Não há exposição de API REST pública ou webhooks assíncronos. A integraç�
 
 * **TXT como fonte canônica:** O workspace DuckDB é derivado e pode ser reconstruído por novo parsing e materialização, com custo adicional de restauração.
 * **DuckDB materializado vs Parquet:** DuckDB concentra o workspace e a execução analítica no mesmo motor. Parquet adicionaria outra representação sem benefício suficiente para o cenário atual.
+* **Benchmark de staging:** Avaliação direcional do cenário testado; não estabelece superioridade universal entre TXT, DuckDB e Parquet.
 * **LLM Exclusivo:** O provedor é opcional. Torná-lo responsável exclusivo pelo roteamento eliminaria o funcionamento offline e acoplaria a disponibilidade do produto a um serviço externo.
 
 ## 🧪 Observabilidade, Testes e DoD
