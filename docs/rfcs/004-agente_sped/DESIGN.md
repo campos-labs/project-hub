@@ -2,115 +2,80 @@
 
 ## 🎯 Objetivo (Problema de Negócio)
 
-O sistema resolve a necessidade de consultar dados fiscais de um arquivo SPED Fiscal texto (.txt) usando linguagem natural. O usuário final é um analista fiscal ou desenvolvedor que quer extrair informações como valores faturados, ICMS, quantidades e outros indicadores diretamente do arquivo bruto, sem precisar mapear manualmente as colunas do SPED.
+O Agente SPED Fiscal permite que analistas executem análises rastreáveis sobre arquivos EFD ICMS/IPI (TXT) sem necessidade de mapeamento manual de posições e relacionamentos do leiaute.
 
-## 📌 Premissas e Decisões
+O sistema opera com um conjunto controlado e versionado de análises catalogadas, executadas de forma reproduzível sobre um workspace local. A Inteligência Artificial atua estritamente como apoio ao roteamento de intenções e à explicação narrativa de resultados que já foram calculados de forma determinística. 
 
-* Produto formado por um agente de fluxo orientado a estados, baseado em **LangGraph**.
-* Processamento local em memória usando **DuckDB**, sem persistência transacional ou banco de dados externo.
-* Input inicial via CLI em loop (`agente_sped/main.py`) com arquivo fixo `data/exemplo_sped.txt`.
-* LLM configurado para Google Gemini por meio de `langchain-google-genai`.
-* V1 não inclui UI web, autenticação de usuários ou serviço de orquestração distribuída.
-* Arquitetura single-tenant e single-file para análise de SPED.
+O produto auxilia a investigação técnica. Ele não substitui o Programa Validador e Assinador (PVA), não transmite escriturações e não produz parecer fiscal ou jurídico conclusivo.
 
 ## ⚙️ Escopo da Solução
 
-* **In:** pergunta do usuário via terminal e caminho do arquivo SPED (`sped_file_path` fixo).
-* **Core:** fluxo de três nós do grafo:
-  1. `LLM_GENERATE_SQL` — gera SQL a partir do prompt especializado.
-  2. `DUCKDB_EXECUTE_QUERY` — executa a query em um DuckDB em memória usando `read_csv` com parâmetros seguros.
-  3. `LLM_FORMAT_RESPONSE` — formata e explica o resultado para o usuário.
-* **Out:** resposta textual técnica ao usuário e, internamente, resultados JSON retornados pelo DuckDB.
-* **Fora do Escopo:** interfaces REST, pipelines de ingestão, persistência de histórico, multi-arquivos simultâneos, classificação/ML adicional, backend distribuído.
+* **Entrada:** Arquivo TXT EFD ICMS/IPI, intenção do usuário (linguagem natural ou seleção direta) e parâmetros de filtro.
+* **Processamento Central:**
+  1. Detectar o `COD_VER`; aceitar `020` e recusar versões sem suporte.
+  2. Selecionar o catálogo de metadados correspondente.
+  3. **Parsing estrutural preservando a identidade do arquivo, do registro e da linha de origem**, normalizando tipos (`raw_values` e `typed_values`).
+  4. Reconstrução da hierarquia estrutural direta.
+  5. Materialização no DuckDB e **geração do FileProfile**.
+  6. Validação de disponibilidade baseada nos registros definidos pelo leiaute, campos exigidos, ocorrências reais e configuração `record_presence_required`.
+  7. Roteamento de intenção com validação de contrato.
+  8. Execução analítica restrita no DuckDB.
+  9. Projeção de payload narrativo separado do resultado completo, mascarado e limitado.
+  10. **Geração de resposta determinística ou sintetizada pelo provedor opcional de IA.**
+* **Saída:** Identificação e versão da análise, parâmetros efetivos, status, resultado estruturado, referências rastreáveis (file_id, record_id, parent_record_id, source_line), síntese textual e motivo explícito para pergunta fora do catálogo, necessidade de esclarecimento, indisponibilidade, resultado vazio ou falha.
+* **Fora do Escopo:** múltiplos arquivos por workspace; auditorias cruzadas; outras obrigações ou leiautes sem suporte; Text-to-SQL livre; análises autônomas criadas por IA; autenticação corporativa; multi-tenancy; API pública; processamento distribuído e transmissão ao fisco.
 
 ## 👥 Usuários e Papéis
 
-* **Analista fiscal / usuário local:** faz perguntas em linguagem natural sobre o arquivo SPED.
-* **Desenvolvedor / operador:** mantém o ambiente Python/Poetry e a configuração de API do LLM.
-* **LLM provider:** o serviço Google Gemini (`google-genai`) acessado via `GOOGLE_API_KEY`.
-* **DuckDB:** executor SQL embutido responsável por ler e processar o arquivo SPED.
+* **Analista Fiscal:** Seleciona ou pergunta pela análise, ajusta parâmetros, inspeciona resultados baseados em evidências (linha de origem) e decide os próximos passos.
+* **Desenvolvedor ou Operador Local:** Mantém os catálogos, o ambiente, as fixtures de teste e a configuração opcional do provedor de IA.
+* **Provedor de IA (Opcional):** Apoia o roteamento estruturado e a narrativa; não calcula valores, cria análises ou executa SQL.
 
 ## 🧩 Modelo de Domínio e Dados
 
-### Infraestrutura Local
+* **Premissas Arquiteturais:** O sistema opera com um arquivo por workspace. Arquivo bruto, parsing, staging, cálculos e resultados completos permanecem no ambiente local. Quando habilitado, o provedor externo recebe apenas dados minimizados da pergunta para roteamento ou o `NarrativePayload` permitido pelo Catálogo de Análises. Regras e parâmetros são tratados por código determinístico, e as consultas catalogadas são executadas no DuckDB. A IA não recalcula nem altera valores. A interação é local e exige ação explícita do usuário para cada execução analítica.
 
-* **DuckDB em memória** (`duckdb.connect(database=':memory:')`).
-* **Arquivo SPED** lido como CSV delimitado por pipe usando `read_csv(..., delim='|', header=False, all_varchar=True, sample_size=-1, null_padding=True)`.
-* **State Graph** baseado em `SPEDAgentState` do `langgraph.graph`.
+### Contratos Estruturais
+* **Workspace:** Isola uma sessão analítica (workspace_id, file_id, versão do leiaute, caminho do DuckDB e status).
+* **FileProfile:** Perfil estruturado do arquivo, contendo período, contagens por registro e anomalias observadas.
+* **ParsedRecord:** Registro interpretado com identidade, código, nível, linha de origem, pai estrutural direto, valores brutos, valores tipados e erros de campo.
+* **AnalysisDefinition:** Contrato versionado materializado em `analysis_catalog.yml`, reunindo roteamento, disponibilidade, parâmetros, critérios, execução, resultado, privacidade, narrativa e limitações.
+* **NarrativePayload:** Projeção reduzida e mascarada do resultado, contendo rows, total_rows, returned_rows, truncated, critérios e limitações permitidas para narrativa.
+* **AgentState:** Mantém pergunta, rota, análise, parâmetros, resumo do resultado, payload narrativo, modo de narrativa e estados controlados como out_of_catalog, needs_clarification, provider_failure, analysis_unavailable, empty_result e execution_error. Não armazena o TXT integral, relações completas, DataFrames, resultados irrestritos ou secrets.
 
-### Entidades Principais
-
-* `SPEDAgentState`:
-  * `messages`: histórico de mensagens do diálogo e tool calls.
-  * `sped_file_path`: caminho para o arquivo SPED.
-  * `generated_sql`: SQL gerado pela LLM.
-  * `duckdb_result`: resultado da query em JSON.
-  * `sql_error`: erro retornado pela execução do DuckDB.
-
-### Máquina de Estados
-
-* `START` → `LLM_GENERATE_SQL`
-* `LLM_GENERATE_SQL` → condicional:
-  * se há tool call → `DUCKDB_EXECUTE_QUERY`
-  * caso contrário → `LLM_FORMAT_RESPONSE`
-* `DUCKDB_EXECUTE_QUERY` → `LLM_GENERATE_SQL` (loop de autocorreção / próxima iteração)
-* `LLM_FORMAT_RESPONSE` → `END`
+### Schema versus Ocorrência
+Um registro definido pelo leiaute pode não ocorrer no arquivo. Uma relação DuckDB pode existir vazia para preservar o schema derivado do leiaute. A disponibilidade considera os campos exigidos, as ocorrências reais e `record_presence_required`; resultado vazio de uma análise válida não equivale a análise indisponível.
 
 ## 🔌 Serviços de Aplicação e Integrações
 
-* `agente_sped.main.run_agent_cli()` — fluxo de interação CLI.
-* `agente_sped.agent_.graph.graph` — orquestra o fluxo em LangGraph.
-* `agente_sped.agent_.nodes.generator.generate_sql_node` — gera SQL com prompt especializado.
-* `agente_sped.agent_.nodes.executor.execute_query_node` — executa tool `execute_duckdb_query`.
-* `agente_sped.agent_.nodes.formatter.format_response_node` — formata a resposta final.
-* `agente_sped.database.duckdb_client.execute_duckdb_query` — ferramenta DuckDB segura.
-* `agente_sped.config.llm_config.call_llm()` — inicializa modelo Gemini.
+* **Builders de Leiaute e Parser:** Transformam a fonte controlada em metadados operacionais e extraem o arquivo preservando identidade, linha de origem e pai estrutural direto, com recusa explícita de versões de leiaute sem suporte.
+* **Workspace Analítico:** A ingestão materializa as relações antes da execução das análises. O executor opera somente sobre consultas catalogadas de leitura e não oferece operações de mutação do workspace ao fluxo de interação.
+* **LangGraph:** Adaptador de orquestração do fluxo e transições de estado, sem autoridade para definir regras fiscais, gerar SQL das análises catalogadas ou executar cálculos.
+* **Roteador Analítico:** O roteamento principal é determinístico. Em casos ambíguos ou de baixa confiança, o serviço pode consultar o provedor de IA; qualquer saída assistida é validada contra o Catálogo de Análises antes que a análise ou seus parâmetros sejam aceitos.
+* **Executor Analítico:** O executor aceita somente consultas de leitura declaradas no catálogo, processa uma instrução por execução, aplica parâmetros vinculados e limita o volume retornado. O controle reduz a superfície de execução, mas não deve ser tratado como sandbox absoluta.
+* **Serviço de Narrativa:** Constrói uma projeção limitada e mascarada do resultado. A resposta determinística permanece disponível sem provedor externo; a resposta assistida não pode recalcular, completar ou alterar os valores produzidos pelo executor.
 
-## 📡 Contratos de API e Workers
+## 📡 Contratos de API e Integrações
 
-Este projeto não expõe APIs REST formais nem workers assíncronos no momento.
+Não há exposição de API REST pública ou webhooks assíncronos. A integração de rede ocorre apenas de forma *outbound* com o provedor opcional de IA (LLM).
 
-Fluxo de interação:
+## 🛡️ Segurança e Rastreabilidade
 
-* Usuário digita pergunta no CLI.
-* `main.py` cria `initial_state` e invoca `graph.invoke(initial_state)`.
-* O grafo processa estados e retorna o `final_state`.
-* A resposta final é exibida em terminal.
+* **Mascaramento e Minimização:** O arquivo bruto e os resultados completos permanecem locais. O payload narrativo é limitado e as colunas declaradas como sensíveis são mascaradas antes de qualquer chamada externa. Arquivos SPED reais, credenciais, arquivos .env, resultados completos e artefatos sensíveis de sessão não são versionados. Credenciais são fornecidas por variável de ambiente e não aparecem em logs.
 
-Componentes funcionais:
+## ⚖️ Trade-offs Arquiteturais
 
-* `execute_duckdb_query(sped_file_path, sql_query)` — tool chamada pela LLM para executar SQL.
-* `graph.invoke()` — ponto de execução da aplicação.
-
-## 🛡️ Segurança e Restrições
-
-* `duckdb_client.py` sanitiza o SQL antes da execução:
-  * corrige aspas duplas para aspas simples em comparações.
-  * força parâmetros seguros no `read_csv(...)`, ignorando qualquer versão enviada pelo prompt.
-* `Settings` carrega `GOOGLE_API_KEY` de `.env`.
-* Não existe autenticação de usuário nem autorização granular nesta versão.
-* O arquivo SPED é processado localmente, reduzindo exposição externa.
+* **TXT como fonte canônica:** O workspace DuckDB é derivado e pode ser reconstruído por novo parsing e materialização, com custo adicional de restauração.
+* **DuckDB materializado vs Parquet:** DuckDB concentra o workspace e a execução analítica no mesmo motor. Parquet adicionaria outra representação sem benefício suficiente para o cenário atual.
+* **Benchmark de staging:** Avaliação direcional do cenário testado; não estabelece superioridade universal entre TXT, DuckDB e Parquet.
+* **LLM Exclusivo:** O provedor é opcional. Torná-lo responsável exclusivo pelo roteamento eliminaria o funcionamento offline e acoplaria a disponibilidade do produto a um serviço externo.
 
 ## 🧪 Observabilidade, Testes e DoD
 
-* Atualmente não há casos de teste implementados no diretório `tests/` além de `__init__.py`.
-* Estratégia recomendada para v1:
-  * `pytest` para validar:
-    * geração de SQL correta a partir de prompts.
-    * execução DuckDB de exemplos SPED locais.
-    * fluxo de reinjeção de erro/correção de query.
-* DoD:
-  1. Usuário pergunta em linguagem natural e recebe resposta técnica correta.
-  2. O agente gera SQL e executa o DuckDB para qualquer consulta de dados.
-  3. Erros de query são capturados e não geram falha fatal no CLI.
-  4. Documento `README.md` e `DESIGN.md` atualizados com arquitetura vigente.
-  5. Dependências e script `agente-sped` funcionam via `poetry install` + `poetry run agente-sped`.
+* **Testes:** Os testes devem cobrir leiaute não suportado, parsing e hierarquia, validação de parâmetros, disponibilidade, resultado vazio, resultados de referência das análises catalogadas, consultas não permitidas, mascaramento, truncamento, saída assistida inválida, roteamento determinístico e fallback sem provedor.
+* **Observabilidade:** Logs registram identificadores técnicos, versão do leiaute, analysis_id, versão da análise, duração, quantidade de linhas, modo narrativo e erros higienizados. Não registram secrets, arquivo bruto, resultados completos ou payloads sensíveis.
+* **Definition of Done (DoD):** O parsing reconstrói a estrutura com tipagem válida. A materialização prepara as relações no DuckDB e o executor processa com `status=ok` as consultas catalogadas e limitadas. O provedor externo, se ativado, interpreta e devolve intenções estruturadas sem acesso livre de leitura/escrita à base local.
 
 ## 📎 Referências
 
-* `pyproject.toml` — dependências e scripts de execução.
-* `agente_sped/main.py` — entrypoint CLI.
-* `agente_sped/agent_/graph.py` — definição do fluxo LangGraph.
-* `agente_sped/database/duckdb_client.py` — execução segura do DuckDB.
-* `agente_sped/agent_/prompts/generator_prompt.py` — regras de geração de SQL para SPED.
-* `agente_sped/agent_/prompts/formatter_prompt.py` — mensagem para formatação da resposta final.
+* **Portal SPED — Receita Federal:** documentação oficial, manuais, guias e documentos técnicos das escriturações digitais (`https://www.gov.br/sped/pt-br`).
