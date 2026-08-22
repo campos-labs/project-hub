@@ -1,0 +1,144 @@
+# Contrato de cenários da POC do tax-reform-impact-simulator.
+# Não é uma tabela normativa. Classificação e reduções vêm de rtc_service_rules.csv.
+# Campos *_pct usam pontos percentuais (ex.: 9.0 = 9%).
+# Campos *_share e *_factor usam frações entre 0 e 1.
+#
+# A NFS-e usa o padrão nacional XML v1.01. A direção da operação é derivada
+# comparando fixture.company_cnpj com prestador/tomador. Cancelamentos são
+# eventos separados e devem preservar o documento original no source trace.
+
+fixture:
+  id: synthetic_services_sp_v1
+  version: 1
+  as_of: '2026-08-21'
+  company_id: SYNTH-SVC-001
+  base_period: 2026-01
+  currency: BRL
+  scope:
+    operation_type: services
+    company_regime: regular
+    municipality_code: '3550308'
+    municipality_name: São Paulo
+    state: SP
+    one_company_per_run: true
+    estimation_only: true
+  company_cnpj: '99999999000191'
+sources:
+  rtc_service_rules:
+    file: rtc_service_rules.csv
+    role: service_classification_and_rtc_treatment
+    sha256: 13041fd12994943a1f429f7ad85f613542fc66fd1bf33259b71f6c2af551ded4
+    dataset_status: RESEARCH_DERIVED
+    anexo_vii_version: 1-02-00
+    anexo_viii_version: 1-01-00
+    classification_source: svrs-conformidade-facil
+  efd_contribuicoes:
+    file: efd_contribuicoes_reference.txt
+    role: observed_legacy_pis_cofins_baseline
+  nfse_nacional:
+    path: nfse_nacional/
+    role: service_documents_legacy_iss_supplier_context_and_rtc_input
+    source_format: NFSE_NACIONAL_XML
+    schema_version: '1.01'
+    schema_reference: NFSe-ESQUEMAS_XSD-v1.01-20260209
+    namespace: http://www.sped.fazenda.gov.br/nfse
+    encoding: UTF-8
+    environment: SYNTHETIC_HOMOLOGATION_FIXTURE
+    direction_rule: COMPARE_COMPANY_CNPJ_TO_PRESTADOR_TOMADOR
+    cancellation_event_code: '101101'
+    documents:
+    - file: SYNTH-NFSE-OUT-0001.xml
+      expected_role: REVENUE
+      sha256: 7b38054ffbb938f3046c751acdc1eff8fe69e439380fba66cf12052e761f2952
+    - file: SYNTH-NFSE-OUT-0002.xml
+      expected_role: REVENUE
+      sha256: 5f68ac4327312f4cba17d7f9816e68af60f87ec2aa8b4ecccee62c56da775d86
+    - file: SYNTH-NFSE-OUT-0003.xml
+      expected_role: REVENUE
+      expected_lifecycle: CANCELLED_BY_EVENT
+      sha256: 3fd27b979f774de15b6426a7da760ed1f282684f5e5072c7b45d748148fbdfef
+    - file: SYNTH-NFSE-IN-0001.xml
+      expected_role: PURCHASE
+      sha256: e5f57d7f2d72b4fb1e7e6316eaac4d87e15dcd24a833becb3088ddd9f4e4e165
+    - file: SYNTH-NFSE-IN-0002.xml
+      expected_role: PURCHASE
+      sha256: 5913ef68b0062e5c5f09060f135fd21e1e63e94d79d971bed12afe13c1f8838d
+    events:
+    - file: SYNTH-NFSE-CANCEL-0001.xml
+      event_code: '101101'
+      applies_to: SYNTH-NFSE-OUT-0003.xml
+      sha256: 1c18854199584230693513ab8263c0424674ed0609487ef3560e79009e951b17
+scenarios:
+  baseline_2026:
+    label: 2026 — ano-teste
+    reference_year: 2026
+    legacy:
+      pis_cofins_share: 1.0
+      iss_share: 1.0
+    rtc:
+      cbs_reference_rate_pct: 0.9
+      ibs_reference_rate_pct: 0.1
+      ibs_transition_factor: 1.0
+      rate_status: OFFICIAL_TEST
+    cash_flow:
+      include_rtc_payment: false
+      status: OFFICIAL_TEST_RELIEF_IF_COMPLIANT
+  transition_2029:
+    label: 2029 — início da transição ICMS/ISS → IBS
+    reference_year: 2029
+    legacy:
+      pis_cofins_share: 0.0
+      iss_share: 0.9
+    rtc:
+      cbs_reference_rate_pct: 9.0
+      ibs_reference_rate_pct: 19.0
+      ibs_transition_factor: 0.1
+      combined_full_reference_rate_pct: 28.0
+      rate_status: SCENARIO_ASSUMPTION
+      transition_status: OFFICIAL_TRANSITION_SHARE
+    cash_flow:
+      include_rtc_payment: true
+  full_2033:
+    label: 2033 — modelo integral
+    reference_year: 2033
+    legacy:
+      pis_cofins_share: 0.0
+      iss_share: 0.0
+    rtc:
+      cbs_reference_rate_pct: 9.0
+      ibs_reference_rate_pct: 19.0
+      ibs_transition_factor: 1.0
+      combined_full_reference_rate_pct: 28.0
+      rate_status: SCENARIO_ASSUMPTION
+      transition_status: OFFICIAL_FULL_TRANSITION
+    cash_flow:
+      include_rtc_payment: true
+supplier_scenarios:
+  application_basis: eligible_purchase_value
+  simple_credit_source: input_document
+  missing_simple_credit_behavior: INSUFFICIENT_DATA
+  cases:
+    simple_100:
+      label: 100% da base elegível permanece no Simples
+      simple_purchase_share: 1.0
+    simple_50:
+      label: 50% da base elegível permanece no Simples
+      simple_purchase_share: 0.5
+    simple_0:
+      label: 0% da base elegível permanece no Simples
+      simple_purchase_share: 0.0
+calculation:
+  percentage_unit: percentage_points
+  share_unit: fraction
+  monetary_scale: 2
+  intermediate_scale: 6
+  rounding: HALF_UP
+  legacy_tax_source: observed_inputs
+  apply_rtc_reductions_from_rules: true
+  missing_rule_behavior: INSUFFICIENT_DATA
+  preserve_source_trace: true
+cash_flow:
+  mode: simplified
+  credit_appropriation_delay_months: 1
+  credit_timing_status: SCENARIO_ASSUMPTION
+  split_payment: NOT_MODELED
