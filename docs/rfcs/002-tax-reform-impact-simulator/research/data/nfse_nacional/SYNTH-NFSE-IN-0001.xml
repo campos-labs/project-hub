@@ -1,0 +1,192 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" versao="1.01">
+  <infNFSe Id="NFS35503082233333333000191000000000200126011234567899">
+    <xLocEmi>São Paulo</xLocEmi>
+    <xLocPrestacao>São Paulo</xLocPrestacao>
+    <nNFSe>2001</nNFSe>
+    <cLocIncid>3550308</cLocIncid>
+    <xLocIncid>São Paulo</xLocIncid>
+    <xTribNac>Assessoria ou consultoria de qualquer natureza, não contida em outros itens desta lista.</xTribNac>
+    <xNBS>Serviços de consultoria em gestão estratégica</xNBS>
+    <verAplic>CAMPOSLABS-POC-1.0</verAplic>
+    <ambGer>2</ambGer>
+    <tpEmis>1</tpEmis>
+    <procEmi>1</procEmi>
+    <cStat>100</cStat>
+    <dhProc>2026-01-15T11:01:00-03:00</dhProc>
+    <nDFSe>2001</nDFSe>
+    <emit>
+      <CNPJ>33333333000191</CNPJ>
+      <IM>33333330</IM>
+      <xNome>FORNECEDOR REGULAR SINTETICO LTDA</xNome>
+      <enderNac>
+        <xLgr>RUA FORNECEDOR REGULAR</xLgr>
+        <nro>300</nro>
+        <xBairro>CENTRO</xBairro>
+        <cMun>3550308</cMun>
+        <UF>SP</UF>
+        <CEP>01003000</CEP>
+      </enderNac>
+      <email>forn-reg@example.invalid</email>
+    </emit>
+    <valores>
+      <vBC>40000.00</vBC>
+      <pAliqAplic>5.00</pAliqAplic>
+      <vISSQN>2000.00</vISSQN>
+      <vTotalRet>0.00</vTotalRet>
+      <vLiq>40000.00</vLiq>
+    </valores>
+    <IBSCBS>
+      <cLocalidadeIncid>3550308</cLocalidadeIncid>
+      <xLocalidadeIncid>São Paulo</xLocalidadeIncid>
+      <valores>
+        <vBC>34300.00</vBC>
+        <uf>
+          <pIBSUF>0.10</pIBSUF>
+          <pAliqEfetUF>0.10</pAliqEfetUF>
+        </uf>
+        <mun>
+          <pIBSMun>0.00</pIBSMun>
+          <pAliqEfetMun>0.00</pAliqEfetMun>
+        </mun>
+        <fed>
+          <pCBS>0.90</pCBS>
+          <pAliqEfetCBS>0.90</pAliqEfetCBS>
+        </fed>
+      </valores>
+      <totCIBS>
+        <vTotNF>40000.00</vTotNF>
+        <gIBS>
+          <vIBSTot>34.30</vIBSTot>
+          <gIBSUFTot>
+            <vIBSUF>34.30</vIBSUF>
+          </gIBSUFTot>
+          <gIBSMunTot>
+            <vIBSMun>0.00</vIBSMun>
+          </gIBSMunTot>
+        </gIBS>
+        <gCBS>
+          <vCBS>308.70</vCBS>
+        </gCBS>
+      </totCIBS>
+    </IBSCBS>
+    <DPS versao="1.01">
+      <infDPS Id="DPS355030823333333300019100001000000000002001">
+        <tpAmb>2</tpAmb>
+        <dhEmi>2026-01-15T11:00:00-03:00</dhEmi>
+        <verAplic>CAMPOSLABS-POC-1.0</verAplic>
+        <serie>00001</serie>
+        <nDPS>2001</nDPS>
+        <dCompet>2026-01-15</dCompet>
+        <tpEmit>1</tpEmit>
+        <cLocEmi>3550308</cLocEmi>
+        <prest>
+          <CNPJ>33333333000191</CNPJ>
+          <IM>33333330</IM>
+          <xNome>FORNECEDOR REGULAR SINTETICO LTDA</xNome>
+          <end>
+            <endNac>
+              <cMun>3550308</cMun>
+              <CEP>01003000</CEP>
+            </endNac>
+            <xLgr>RUA FORNECEDOR REGULAR</xLgr>
+            <nro>300</nro>
+            <xBairro>CENTRO</xBairro>
+          </end>
+          <email>forn-reg@example.invalid</email>
+          <regTrib>
+            <opSimpNac>1</opSimpNac>
+            <regEspTrib>0</regEspTrib>
+          </regTrib>
+        </prest>
+        <toma>
+          <CNPJ>99999999000191</CNPJ>
+          <IM>99999990</IM>
+          <xNome>CAMPOS LABS SERVICOS SINTETICOS LTDA</xNome>
+          <end>
+            <endNac>
+              <cMun>3550308</cMun>
+              <CEP>01000000</CEP>
+            </endNac>
+            <xLgr>RUA DOS TESTES</xLgr>
+            <nro>100</nro>
+            <xCpl>SALA 1</xCpl>
+            <xBairro>CENTRO</xBairro>
+          </end>
+          <email>fiscal@example.invalid</email>
+        </toma>
+        <serv>
+          <locPrest>
+            <cLocPrestacao>3550308</cLocPrestacao>
+          </locPrest>
+          <cServ>
+            <cTribNac>170101</cTribNac>
+            <xDescServ>CONSULTORIA UTILIZADA COMO INSUMO - CENARIO SINTETICO</xDescServ>
+            <cNBS>114011100</cNBS>
+            <cIntContrib>SVCCONSULTING</cIntContrib>
+          </cServ>
+        </serv>
+        <valores>
+          <vServPrest>
+            <vServ>40000.00</vServ>
+          </vServPrest>
+          <trib>
+            <tribMun>
+              <tribISSQN>1</tribISSQN>
+              <tpRetISSQN>1</tpRetISSQN>
+              <pAliq>5.00</pAliq>
+            </tribMun>
+            <tribFed>
+              <piscofins>
+                <CST>01</CST>
+                <vBCPisCofins>40000.00</vBCPisCofins>
+                <pAliqPis>1.65</pAliqPis>
+                <pAliqCofins>7.60</pAliqCofins>
+                <vPis>660.00</vPis>
+                <vCofins>3040.00</vCofins>
+                <tpRetPisCofins>0</tpRetPisCofins>
+              </piscofins>
+            </tribFed>
+            <totTrib>
+              <indTotTrib>0</indTotTrib>
+            </totTrib>
+          </trib>
+        </valores>
+        <IBSCBS>
+          <finNFSe>0</finNFSe>
+          <indFinal>0</indFinal>
+          <cIndOp>100301</cIndOp>
+          <indDest>0</indDest>
+          <valores>
+            <trib>
+              <gIBSCBS>
+                <CST>000</CST>
+                <cClassTrib>000001</cClassTrib>
+              </gIBSCBS>
+            </trib>
+          </valores>
+        </IBSCBS>
+      </infDPS>
+    </DPS>
+  </infNFSe>
+  <ds:Signature>
+    <ds:SignedInfo>
+      <ds:CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+      <ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
+      <ds:Reference URI="#NFS35503082233333333000191000000000200126011234567899">
+        <ds:Transforms>
+          <ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>
+          <ds:Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+        </ds:Transforms>
+        <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+        <ds:DigestValue>K66TQNWrmW+p0ptUngeZbxyUTHY3+6eMRQSBF3E9n7Y=</ds:DigestValue>
+      </ds:Reference>
+    </ds:SignedInfo>
+    <ds:SignatureValue>hlabSGAeKt1IYCgx0kRpe7hQQuJFnHxcidvGhT8XoT02dhNFfAHoBttCd/DF4HyXzKTU+yIksoNEgFkojARPfrLKlur00iuhiqiPmoIkYR1KUEtvLXyp9uEPt5604cJzjX4c+KLjZRU1Z9CS+QBgwCDuYbXx3SBPC/lJSiCW4iGwMPLe+xcsVuPzqDO4YhTwLdhvMMylWHChdnRFB6mmTJ6hi5CCKbTKdFmsEjlQPsTVqA5FDx50JvzQbmdvM7jll736F2yJegF+LuMTcA/n/23Il1mafokj4rTORZrhaicEiAW8CWCgXTwbk+a4xQsn1P0aV04n6yq7cbDt0TFkXw==</ds:SignatureValue>
+    <ds:KeyInfo>
+      <ds:X509Data>
+        <ds:X509Certificate>MIIDZjCCAk6gAwIBAgIUSnhOHHY7iNRy009vwKk787R+bikwDQYJKoZIhvcNAQELBQAwXDELMAkGA1UEBhMCQlIxJjAkBgNVBAoMHUNhbXBvcyBMYWJzIFN5bnRoZXRpYyBGaXh0dXJlMSUwIwYDVQQDDBxTWU5USEVUSUMgTkZTLWUgRklYVFVSRSAyMDAxMB4XDTI1MDEwMTAwMDAwMFoXDTMwMTIzMTIzNTk1OVowXDELMAkGA1UEBhMCQlIxJjAkBgNVBAoMHUNhbXBvcyBMYWJzIFN5bnRoZXRpYyBGaXh0dXJlMSUwIwYDVQQDDBxTWU5USEVUSUMgTkZTLWUgRklYVFVSRSAyMDAxMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvwfAIVcjN8O+oBQrfj7f2bdN976xHeRdHYonftW6kcCcLFW8yqoAPDWnCNnJ6AaUZFgloSEBIGdXiY407WX23upIaeozyrvtIK4R8EgME4m8hxB2gJLWr45X5TxGtv4CR2DKYusg0gOxEigAeGt4qnxoRogW/WBIoLgIXCOKChVTyKq30ZzzaOEQjoyK1Ep7PwHsUa6nEwpyUn5tZlosiEAjz+aFLX3BZfag+7Vj0bbGtH6CAlIWjFo8MpI8HbzZ2Wd8TSuqweC0xtlDaXvNVVL1O/AzUTzMYcMzL1zUsb5368Ayf8Eq563y75Tb7Y4V0QR1MCy4Y6DXzrTxO+qlqwIDAQABoyAwHjAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIGwDANBgkqhkiG9w0BAQsFAAOCAQEAXStLZsrDOdXPd0t4AKaG4mwMQxijkGQWLxJANxIfjcaeEZK7LhNw/CGyJN1ThSYETJY+Vm7j+gL9GThhlFqZmZxUnfLFe7/zW7WUtLtiN2DAFWlVDn1AuFK3WKz7+Ft8bt5afIfXxn9rO6zeALv/j60lfS03cC1bJQv+bC/uZ1dFsVCSZP9j31MzSHn09ehnvPPJWe8ShXN3tcgYvtXXphiBB5kw92Eoksjk6UkbLBCaZATZ3MdwWXYdsQyay9W61HVYdqMdYoSHMWe32xmWIK8nG/4J93+0NfbIduTxh3Ee7RWzCFIIGT6Sppfg2qkOAt7QkRukhnH9FHqgNibfRw==</ds:X509Certificate>
+      </ds:X509Data>
+    </ds:KeyInfo>
+  </ds:Signature>
+</NFSe>
