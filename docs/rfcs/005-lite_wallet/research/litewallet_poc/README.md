@@ -86,8 +86,7 @@ O experimento trata arquivos de áudio nos formatos:
 
 O MIME type é identificado a partir da extensão do arquivo antes do envio ao modelo.
 
-O arquivo de áudio utilizado no experimento não precisa ser versionado no repositório.
-
+O arquivo de áudio utilizado no experimento não precisa ser versionado no repositório; este diretório inclui um exemplo em `samples/transaction.m4a` para facilitar a reprodução.
 ## Execução
 
 Informe no `app.py` o caminho de um arquivo de áudio disponível localmente.
