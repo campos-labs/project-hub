@@ -82,7 +82,7 @@ def processar_audio_curto(state: AudioState):
     resposta = structured_llm.invoke([mensagem])
     return {"resultado": resposta}
 
-audio_path = "audio_litewallet/datasets/registro.m4a"
+audio_path = "samples/transaction.m4a"
 resultado = processar_audio_curto({
     "audio_path": audio_path,
     "mime_type": get_mime_type(audio_path),
