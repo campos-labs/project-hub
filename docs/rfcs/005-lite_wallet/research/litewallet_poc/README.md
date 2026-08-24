@@ -148,11 +148,13 @@ A data e o ano vigentes são obtidos pela aplicação e fornecidos ao modelo com
 
 ## Estrutura
 
-```text
+~~~text
 <diretório-da-poc>/
 ├── README.md
-└── app.py
-```
+├── app.py
+└── samples/
+    └── transaction.m4a
+~~~
 
 O `README.md` documenta apenas como reproduzir o experimento.
 
