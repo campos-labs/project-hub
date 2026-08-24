@@ -30,7 +30,7 @@ def get_mime_type(path: str) -> str:
     return overrides.get(ext, mime or "application/octet-stream")
     
 
-llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite", temperature=0, api_key="settings.GOOGLE_API_KEY")# digite a sua api key do google aqui
+llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite", temperature=0)
 structured_llm = llm.with_structured_output(TransactionExtraction)
 
 
