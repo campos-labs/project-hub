@@ -91,8 +91,8 @@ if __name__ == "__main__":
         print(
             """
 Uso:
-    uv run tutorial_celery_rabbitmq.py worker    # inicia o worker
-    uv run tutorial_celery_rabbitmq.py produce   # envia tarefas para a fila
+    uv run docs/rfcs/005-lite_wallet/spike/tutorial_celery_rabbitmq.py worker    # inicia o worker
+    uv run docs/rfcs/005-lite_wallet/spike/tutorial_celery_rabbitmq.py produce   # envia tarefas para a fila
 """
         )
         raise SystemExit(1)
