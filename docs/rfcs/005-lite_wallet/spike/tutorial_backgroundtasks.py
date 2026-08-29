@@ -12,7 +12,7 @@ Este arquivo é autossuficiente. Não depende de Celery, RabbitMQ nem de
 nenhum outro arquivo deste repositório.
 
 Como rodar:
-    uv run tutorial_backgroundtasks.py
+    uv run docs/rfcs/005-lite_wallet/spike/tutorial_backgroundtasks.py
 
 Depois acesse http://localhost:8000/docs para testar cada endpoint
 pela interface do Swagger, e observe o terminal onde a API está rodando.
