@@ -42,7 +42,7 @@ def write_log(message: str) -> None:
     print(f"[{timestamp}] {message}")
 
 
-@app.post("/log")
+@app.post("/log", status_code=202)
 def create_log_entry(message: str, background_tasks: BackgroundTasks):
     """
     Devolve a resposta IMEDIATAMENTE e só depois executa write_log().
