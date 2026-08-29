@@ -16,10 +16,10 @@ Pré-requisito: RabbitMQ rodando localmente.
 Como rodar (dois terminais):
 
 Terminal 1 - subir o worker (quem EXECUTA as tarefas):
-    uv run tutorial_celery_rabbitmq.py worker
+    uv run docs/rfcs/005-lite_wallet/spike/tutorial_celery_rabbitmq.py worker
 
 Terminal 2 - produzir tarefas (quem ENFILEIRA o trabalho):
-    uv run tutorial_celery_rabbitmq.py produce
+    uv run docs/rfcs/005-lite_wallet/spike/tutorial_celery_rabbitmq.py produce
 """
 
 import sys
