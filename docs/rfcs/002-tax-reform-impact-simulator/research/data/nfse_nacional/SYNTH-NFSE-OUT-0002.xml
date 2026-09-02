@@ -1,0 +1,193 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" versao="1.01">
+  <infNFSe Id="NFS35503082299999999000191000000000100226011234567894">
+    <xLocEmi>São Paulo</xLocEmi>
+    <xLocPrestacao>São Paulo</xLocPrestacao>
+    <nNFSe>1002</nNFSe>
+    <cLocIncid>3550308</cLocIncid>
+    <xLocIncid>São Paulo</xLocIncid>
+    <xTribNac>Suporte técnico em informática, inclusive instalação, configuração e manutenção de programas de computação e bancos de dados.</xTribNac>
+    <xNBS>Serviços de suporte em tecnologia da informação (TI)</xNBS>
+    <verAplic>CAMPOSLABS-POC-1.0</verAplic>
+    <ambGer>2</ambGer>
+    <tpEmis>1</tpEmis>
+    <procEmi>1</procEmi>
+    <cStat>100</cStat>
+    <dhProc>2026-01-12T10:01:00-03:00</dhProc>
+    <nDFSe>1002</nDFSe>
+    <emit>
+      <CNPJ>99999999000191</CNPJ>
+      <IM>99999990</IM>
+      <xNome>CAMPOS LABS SERVICOS SINTETICOS LTDA</xNome>
+      <enderNac>
+        <xLgr>RUA DOS TESTES</xLgr>
+        <nro>100</nro>
+        <xCpl>SALA 1</xCpl>
+        <xBairro>CENTRO</xBairro>
+        <cMun>3550308</cMun>
+        <UF>SP</UF>
+        <CEP>01000000</CEP>
+      </enderNac>
+      <email>fiscal@example.invalid</email>
+    </emit>
+    <valores>
+      <vBC>50000.00</vBC>
+      <pAliqAplic>2.90</pAliqAplic>
+      <vISSQN>1450.00</vISSQN>
+      <vTotalRet>0.00</vTotalRet>
+      <vLiq>50000.00</vLiq>
+    </valores>
+    <IBSCBS>
+      <cLocalidadeIncid>3550308</cLocalidadeIncid>
+      <xLocalidadeIncid>São Paulo</xLocalidadeIncid>
+      <valores>
+        <vBC>43925.00</vBC>
+        <uf>
+          <pIBSUF>0.10</pIBSUF>
+          <pAliqEfetUF>0.10</pAliqEfetUF>
+        </uf>
+        <mun>
+          <pIBSMun>0.00</pIBSMun>
+          <pAliqEfetMun>0.00</pAliqEfetMun>
+        </mun>
+        <fed>
+          <pCBS>0.90</pCBS>
+          <pAliqEfetCBS>0.90</pAliqEfetCBS>
+        </fed>
+      </valores>
+      <totCIBS>
+        <vTotNF>50000.00</vTotNF>
+        <gIBS>
+          <vIBSTot>43.93</vIBSTot>
+          <gIBSUFTot>
+            <vIBSUF>43.93</vIBSUF>
+          </gIBSUFTot>
+          <gIBSMunTot>
+            <vIBSMun>0.00</vIBSMun>
+          </gIBSMunTot>
+        </gIBS>
+        <gCBS>
+          <vCBS>395.33</vCBS>
+        </gCBS>
+      </totCIBS>
+    </IBSCBS>
+    <DPS versao="1.01">
+      <infDPS Id="DPS355030829999999900019100001000000000001002">
+        <tpAmb>2</tpAmb>
+        <dhEmi>2026-01-12T10:00:00-03:00</dhEmi>
+        <verAplic>CAMPOSLABS-POC-1.0</verAplic>
+        <serie>00001</serie>
+        <nDPS>1002</nDPS>
+        <dCompet>2026-01-12</dCompet>
+        <tpEmit>1</tpEmit>
+        <cLocEmi>3550308</cLocEmi>
+        <prest>
+          <CNPJ>99999999000191</CNPJ>
+          <IM>99999990</IM>
+          <xNome>CAMPOS LABS SERVICOS SINTETICOS LTDA</xNome>
+          <end>
+            <endNac>
+              <cMun>3550308</cMun>
+              <CEP>01000000</CEP>
+            </endNac>
+            <xLgr>RUA DOS TESTES</xLgr>
+            <nro>100</nro>
+            <xCpl>SALA 1</xCpl>
+            <xBairro>CENTRO</xBairro>
+          </end>
+          <email>fiscal@example.invalid</email>
+          <regTrib>
+            <opSimpNac>1</opSimpNac>
+            <regEspTrib>0</regEspTrib>
+          </regTrib>
+        </prest>
+        <toma>
+          <CNPJ>22222222000191</CNPJ>
+          <IM>22222220</IM>
+          <xNome>CLIENTE BETA SINTETICO LTDA</xNome>
+          <end>
+            <endNac>
+              <cMun>3550308</cMun>
+              <CEP>01002000</CEP>
+            </endNac>
+            <xLgr>RUA CLIENTE BETA</xLgr>
+            <nro>200</nro>
+            <xBairro>CENTRO</xBairro>
+          </end>
+          <email>cliente-b@example.invalid</email>
+        </toma>
+        <serv>
+          <locPrest>
+            <cLocPrestacao>3550308</cLocPrestacao>
+          </locPrest>
+          <cServ>
+            <cTribNac>010701</cTribNac>
+            <xDescServ>SUPORTE TECNICO - CENARIO SINTETICO</xDescServ>
+            <cNBS>115013000</cNBS>
+            <cIntContrib>SVCSUPPORT</cIntContrib>
+          </cServ>
+        </serv>
+        <valores>
+          <vServPrest>
+            <vServ>50000.00</vServ>
+          </vServPrest>
+          <trib>
+            <tribMun>
+              <tribISSQN>1</tribISSQN>
+              <tpRetISSQN>1</tpRetISSQN>
+              <pAliq>2.90</pAliq>
+            </tribMun>
+            <tribFed>
+              <piscofins>
+                <CST>01</CST>
+                <vBCPisCofins>50000.00</vBCPisCofins>
+                <pAliqPis>1.65</pAliqPis>
+                <pAliqCofins>7.60</pAliqCofins>
+                <vPis>825.00</vPis>
+                <vCofins>3800.00</vCofins>
+                <tpRetPisCofins>0</tpRetPisCofins>
+              </piscofins>
+            </tribFed>
+            <totTrib>
+              <indTotTrib>0</indTotTrib>
+            </totTrib>
+          </trib>
+        </valores>
+        <IBSCBS>
+          <finNFSe>0</finNFSe>
+          <indFinal>0</indFinal>
+          <cIndOp>100301</cIndOp>
+          <indDest>0</indDest>
+          <valores>
+            <trib>
+              <gIBSCBS>
+                <CST>000</CST>
+                <cClassTrib>000001</cClassTrib>
+              </gIBSCBS>
+            </trib>
+          </valores>
+        </IBSCBS>
+      </infDPS>
+    </DPS>
+  </infNFSe>
+  <ds:Signature>
+    <ds:SignedInfo>
+      <ds:CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+      <ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
+      <ds:Reference URI="#NFS35503082299999999000191000000000100226011234567894">
+        <ds:Transforms>
+          <ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>
+          <ds:Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+        </ds:Transforms>
+        <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+        <ds:DigestValue>SNVJe5j23oaa590Bs1tvXtKwtbFmn6fn0WivVuskgis=</ds:DigestValue>
+      </ds:Reference>
+    </ds:SignedInfo>
+    <ds:SignatureValue>Q6/GnZT3pXxhbPD5zRuAdtukJayhgueMHqsniP5T1rKCYFv5ud6LP9UUg10Spz6bpmSZgqhTxY/YgSyW8L/81IUvSGxiqXMROxOzcboyWywI5XVNRYJsXBKFmtstfzNInN8DcwNCTuEVg7DTaUUg3mJPWOV2mBJkEZ3INsHB6V1pm1ZJA0K7MCzqeFt76XZwhZ/a6mI7IHlcLNi1b16pY9xqAreVGy4/OWRWxbTiGd1Su1oQbepGVXJLxo3GeoY/Fsp9nVyF13ysRijkncLGRFnUAyVB/26x1bDCu+jGxzQe9IDC+C07p98Dvasqc1YekOlnds4rl8kPjFldkloywA==</ds:SignatureValue>
+    <ds:KeyInfo>
+      <ds:X509Data>
+        <ds:X509Certificate>MIIDZjCCAk6gAwIBAgIUYxp7WPXZfBmHdYnVvyeXBn1xzkwwDQYJKoZIhvcNAQELBQAwXDELMAkGA1UEBhMCQlIxJjAkBgNVBAoMHUNhbXBvcyBMYWJzIFN5bnRoZXRpYyBGaXh0dXJlMSUwIwYDVQQDDBxTWU5USEVUSUMgTkZTLWUgRklYVFVSRSAxMDAyMB4XDTI1MDEwMTAwMDAwMFoXDTMwMTIzMTIzNTk1OVowXDELMAkGA1UEBhMCQlIxJjAkBgNVBAoMHUNhbXBvcyBMYWJzIFN5bnRoZXRpYyBGaXh0dXJlMSUwIwYDVQQDDBxTWU5USEVUSUMgTkZTLWUgRklYVFVSRSAxMDAyMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAo8i/CAGH/sCXwFaaR1TKi/NORKQFBEkx/jPkBPZLo6xMFHsbylFpt7cpavGha4vj3Zc6kWw5b0KzA0hWTiq2nmfHf/UKJdEACY8pfumd9I8l3S1DPbHWIll5knjZ9ABQhuZViTxM0FLBraKsFPE1P8FvhQGkThADURqmDzlBBnGJhyzOcHAY8gilFDLQGhNUfM63rdAOM1bgohcPZJ+JftogDERMf4EaKnm4xwFVPgu7WUcm4cdQe2jQaGVyy4LmNOAOIzhbY6rGbmEP0nBfOEtIdqb0sNqwi/OIqHMN5FIN1LzhSxisVPWICSnGHhi52tkGjFdd6Uddza0iGClaGQIDAQABoyAwHjAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIGwDANBgkqhkiG9w0BAQsFAAOCAQEAH673JS2zfJRjdH/tFi8/kIDK2PyUWzYwgGGabmSG3uOnnVg32N/wIcUdrUIygBwFMObRURp+AHJK3jczK4AacRZ8Co5RZRhVN15oKK4JfCe8Vq7OEWmfkCQ5fa2ABc+PLF8I3xjFai8XFcM6jWjR8DoXE/6grDcmVKgcxFTf07iZjpmDqKgSrb5YUAW6VtdaZp54Wiiju36qY6R3Uf/e44b4l6lgLs5/9564jXsCuzo8qlqGcThfDF03BeDYwVQDN/H6d0ylyYw0tiwEE4yf0nk/i8xMXn68N7bQycx5BKhP/pQ0PN25X0yIzN/uCerQBXQzbnPCOGNWiuBButy1ww==</ds:X509Certificate>
+      </ds:X509Data>
+    </ds:KeyInfo>
+  </ds:Signature>
+</NFSe>

@@ -1,0 +1,131 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" versao="1.01">
+  <infNFSe Id="NFS35503082244444444000191000000000200226011234567892">
+    <xLocEmi>São Paulo</xLocEmi>
+    <xLocPrestacao>São Paulo</xLocPrestacao>
+    <nNFSe>2002</nNFSe>
+    <cLocIncid>3550308</cLocIncid>
+    <xLocIncid>São Paulo</xLocIncid>
+    <xTribNac>Suporte técnico em informática, inclusive instalação, configuração e manutenção de programas de computação e bancos de dados.</xTribNac>
+    <xNBS>Serviços de suporte em tecnologia da informação (TI)</xNBS>
+    <verAplic>CAMPOSLABS-POC-1.0</verAplic>
+    <ambGer>2</ambGer>
+    <tpEmis>1</tpEmis>
+    <procEmi>1</procEmi>
+    <cStat>100</cStat>
+    <dhProc>2026-01-20T09:01:00-03:00</dhProc>
+    <nDFSe>2002</nDFSe>
+    <emit>
+      <CNPJ>44444444000191</CNPJ>
+      <IM>44444440</IM>
+      <xNome>FORNECEDOR SIMPLES SINTETICO LTDA</xNome>
+      <enderNac>
+        <xLgr>RUA FORNECEDOR SIMPLES</xLgr>
+        <nro>400</nro>
+        <xBairro>CENTRO</xBairro>
+        <cMun>3550308</cMun>
+        <UF>SP</UF>
+        <CEP>01004000</CEP>
+      </enderNac>
+      <email>forn-simple@example.invalid</email>
+    </emit>
+    <valores>
+      <vBC>20000.00</vBC>
+      <vTotalRet>0.00</vTotalRet>
+      <vLiq>20000.00</vLiq>
+    </valores>
+    <DPS versao="1.01">
+      <infDPS Id="DPS355030824444444400019100001000000000002002">
+        <tpAmb>2</tpAmb>
+        <dhEmi>2026-01-20T09:00:00-03:00</dhEmi>
+        <verAplic>CAMPOSLABS-POC-1.0</verAplic>
+        <serie>00001</serie>
+        <nDPS>2002</nDPS>
+        <dCompet>2026-01-20</dCompet>
+        <tpEmit>1</tpEmit>
+        <cLocEmi>3550308</cLocEmi>
+        <prest>
+          <CNPJ>44444444000191</CNPJ>
+          <IM>44444440</IM>
+          <xNome>FORNECEDOR SIMPLES SINTETICO LTDA</xNome>
+          <end>
+            <endNac>
+              <cMun>3550308</cMun>
+              <CEP>01004000</CEP>
+            </endNac>
+            <xLgr>RUA FORNECEDOR SIMPLES</xLgr>
+            <nro>400</nro>
+            <xBairro>CENTRO</xBairro>
+          </end>
+          <email>forn-simple@example.invalid</email>
+          <regTrib>
+            <opSimpNac>3</opSimpNac>
+            <regApTribSN>1</regApTribSN>
+            <regEspTrib>0</regEspTrib>
+          </regTrib>
+        </prest>
+        <toma>
+          <CNPJ>99999999000191</CNPJ>
+          <IM>99999990</IM>
+          <xNome>CAMPOS LABS SERVICOS SINTETICOS LTDA</xNome>
+          <end>
+            <endNac>
+              <cMun>3550308</cMun>
+              <CEP>01000000</CEP>
+            </endNac>
+            <xLgr>RUA DOS TESTES</xLgr>
+            <nro>100</nro>
+            <xCpl>SALA 1</xCpl>
+            <xBairro>CENTRO</xBairro>
+          </end>
+          <email>fiscal@example.invalid</email>
+        </toma>
+        <serv>
+          <locPrest>
+            <cLocPrestacao>3550308</cLocPrestacao>
+          </locPrest>
+          <cServ>
+            <cTribNac>010701</cTribNac>
+            <xDescServ>SUPORTE SEM CREDITO NO BASELINE - CENARIO SINTETICO</xDescServ>
+            <cNBS>115013000</cNBS>
+            <cIntContrib>SVCSUPPORT</cIntContrib>
+          </cServ>
+        </serv>
+        <valores>
+          <vServPrest>
+            <vServ>20000.00</vServ>
+          </vServPrest>
+          <trib>
+            <tribMun>
+              <tribISSQN>1</tribISSQN>
+              <tpRetISSQN>1</tpRetISSQN>
+            </tribMun>
+            <totTrib>
+              <indTotTrib>0</indTotTrib>
+            </totTrib>
+          </trib>
+        </valores>
+      </infDPS>
+    </DPS>
+  </infNFSe>
+  <ds:Signature>
+    <ds:SignedInfo>
+      <ds:CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+      <ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
+      <ds:Reference URI="#NFS35503082244444444000191000000000200226011234567892">
+        <ds:Transforms>
+          <ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>
+          <ds:Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+        </ds:Transforms>
+        <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+        <ds:DigestValue>Ly7718vEiwS0v6M4Hnhexl9lWnH8c6sOIAgL04EZnps=</ds:DigestValue>
+      </ds:Reference>
+    </ds:SignedInfo>
+    <ds:SignatureValue>NR7ijMjpwKCTHnBoJozeRTi6sVg+fOSQQBsVgPWzkNiBqkKDs+ray7V+l5ALGimyziJ9DkKpvmKltw/5ceymyKcPb89l5LlhgDBT5HSBAXpo7hEffrs48c41py+rhGi0OBA358+SB7qW7kU3dMYO3R46nvYPvBSsnJkZWPOHW56uU6Y5D4Ssc41OGObtbRW8Qk2gtrmZMuqWrcDX2d4Bf1XZ6KKzmEyWkC4GlBk1akf6pVEJ20aWH3+uNgzdbMmDTEhs26BoFnOJE0bYMbzS/otVvP39YJkFAvv8buJPzEppjnyQoh9q9V/4ICeb0N3SD+vCACsV8zxoX2GR0EyjEA==</ds:SignatureValue>
+    <ds:KeyInfo>
+      <ds:X509Data>
+        <ds:X509Certificate>MIIDZjCCAk6gAwIBAgIUDkiRujWJ65r8a92uMccKp+RoO3swDQYJKoZIhvcNAQELBQAwXDELMAkGA1UEBhMCQlIxJjAkBgNVBAoMHUNhbXBvcyBMYWJzIFN5bnRoZXRpYyBGaXh0dXJlMSUwIwYDVQQDDBxTWU5USEVUSUMgTkZTLWUgRklYVFVSRSAyMDAyMB4XDTI1MDEwMTAwMDAwMFoXDTMwMTIzMTIzNTk1OVowXDELMAkGA1UEBhMCQlIxJjAkBgNVBAoMHUNhbXBvcyBMYWJzIFN5bnRoZXRpYyBGaXh0dXJlMSUwIwYDVQQDDBxTWU5USEVUSUMgTkZTLWUgRklYVFVSRSAyMDAyMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoUn8EyXVmBdQACg7izUEbspyJnUJgH2cUwCQOuaDeZCAXOwBLAxo4PKIyhtp6y5lCOTP+o0JY1ZIK/c1P2R5IfiGHNogMEWsav98iEfjhmkNjfwg8nh8tIqRllBC/TEm7Pfwo+OK0dVLI9fXkzq+hm41JMqd7pDdgNs7nPtloJpb5H4KNlY2q0f9CFVzzdbCLBzRenK4lLv8jzuRaZPTkuwqcSmx2Cz9QQg/VXZ+5IBq2T8ta4Utz+JPBqSAXd0G2kAA2NEG3EDk63k1olI9UNp6ns9vXMTnzf1UDLhim5gRIrnrj9NOeJE16rdSw1GmZJ+96ln8SLnEc+ksZYzljQIDAQABoyAwHjAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIGwDANBgkqhkiG9w0BAQsFAAOCAQEAh3Goheh95nvM4JQV+gB3Aa8VkvRg3gyXL8faa2a+kJ2JDiwlMMcIxBjJ+uS7lUotBWo6QHpRE9gMDX6p2cK1d8MRCAfEpUWivlsmcYizNVLceU3Jvh+0VNgDaHJoa5JwetH9LbrgAgtawc6dzLJejSxD1+5pimX8bfoB6Rcj5t2FoLnwaE6MQaNqphYUgM9TZZIdqj9fGh/C91XOx7O7HX5n0b+auXKhObbuwki8gr/yUl07PCY2J93xBMXG1IzMXYT0FLbqH9xFINCAwcDLWxUg7hrYwzvnI8+9Dy8rBtNo3u7lzx5tFs7LPWc2RQh7sKgVD0blWVO2aB71XpyeKA==</ds:X509Certificate>
+      </ds:X509Data>
+    </ds:KeyInfo>
+  </ds:Signature>
+</NFSe>
