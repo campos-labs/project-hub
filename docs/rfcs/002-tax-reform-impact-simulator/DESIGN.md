@@ -96,7 +96,7 @@ Preservar os contratos úteis da POC: `simulation_runs`, `simulation_detail`, `s
 ### Regras, bases e precisão
 * **Origem:** separar dado observado, cálculo determinístico e hipótese. O ano projetado não muda a competência dos arquivos. Alíquotas hipotéticas não recebem rótulo de oficiais; valores da POC não são parâmetros legais padrão.
 * **Cenários:** definir política de base/preço, tributos legados, reduções, vigência e condições de crédito. Não aplicar alíquota futura ao bruto legado como se a base estivesse legalmente determinada. Novos anos e exceções exigem suporte e testes.
-* **Precisão:** usar `Decimal`/`DECIMAL`, escala monetária 2 e escala intermediária/de percentuais de pelo menos 6, com arredondamento explícito por operação/tributo. Regras ficam no código e catálogo versionados; premissas operacionais, na configuração. Comparar contratos delimitados entre motores, não apenas totais coincidentes.
+* **Precisão:** usar `Decimal`/`DECIMAL`, escala monetária 2 e escala intermediária e de percentuais de pelo menos 6, com arredondamento explícito por operação/tributo. Regras ficam no código e catálogo versionados; premissas operacionais, na configuração. Comparar contratos delimitados entre motores, não apenas totais coincidentes.
 
 ### Fornecedores e créditos
 * **Regimes:** distinguir opção pelo Simples, recolhimento de IBS/CBS no período e hipótese de migração. Recolher IBS/CBS pelo regime regular não significa necessariamente sair do Simples.
