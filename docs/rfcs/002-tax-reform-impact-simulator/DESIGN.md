@@ -34,7 +34,7 @@ O `tax-reform-impact-simulator` transforma dados fiscais em estimativas de impac
 5. **Consultar:** selecionar empresa, competência, execução e cenário no Power BI, sem refazer ingestão ou cálculo.
 6. **Revisar:** mudanças de insumos, regras ou premissas geram nova execução e preservam a anterior.
 
-O `README.md` documenta upload, configuração e acionamento nativos, com exemplos sintéticos. A revisão usa arquivo de configuração e tabela de complementos; não exige CRUD, aprovação individual de notas ou automação cadastral. O Power BI não é a tela de upload.
+O `README.md` do repositório dedicado deverá documentar upload, configuração e acionamento nativos, com exemplos sintéticos. A revisão usará arquivo de configuração e tabela de complementos; não exigirá CRUD, aprovação individual de notas ou automação cadastral. O Power BI não será a tela de upload.
 
 ## 🧩 Modelo de Domínio e Dados
 
