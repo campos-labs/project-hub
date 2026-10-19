@@ -65,7 +65,7 @@ def encode_image(path: str) -> str:
 
 
 def main():
-    image_path = "cupom.jpeg"
+    image_path = sys.argv[1] if len(sys.argv) > 1 else "cupom.jpeg"
     image_base64 = encode_image(image_path)
 
     llm = ChatGoogleGenerativeAI(
