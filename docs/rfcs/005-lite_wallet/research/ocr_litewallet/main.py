@@ -6,13 +6,13 @@ from decimal import Decimal, InvalidOperation
 from pydantic import BaseModel, Field, field_validator
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.messages import HumanMessage
-from settings import Settings
+import os
 from rich import print
 
 warnings.filterwarnings("ignore", message=".*automatic function calling.*")
 logging.getLogger("google_genai").setLevel(logging.ERROR)
 
-settings = Settings()
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 
 class ItemCupom(BaseModel):
