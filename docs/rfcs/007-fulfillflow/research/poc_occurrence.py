@@ -14,7 +14,8 @@ compor uma jornada pequena, sem alterar o estado da remessa ou do pedido.
 PowerShell, a partir da raiz do project-hub (Docker Desktop Linux e uv):
   $poc = 'docs/rfcs/007-fulfillflow/research/poc_occurrence.py'
   uv run $poc up
-  uv run $poc verify --output docs/rfcs/007-fulfillflow/research/data/result.json
+  uv run $poc verify
+  # Opcional: --output <arquivo-novo.json> preserva uma nova execução.
   uv run $poc credentials
   uv run $poc serve
   # Abra http://127.0.0.1:8740. Ana/Bruno operam; Leitor apenas consulta.

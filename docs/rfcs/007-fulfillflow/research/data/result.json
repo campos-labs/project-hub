@@ -1,8 +1,8 @@
 {
   "status": "PASS",
-  "started_at": "2026-10-20T20:23:48.572650+00:00",
-  "finished_at": "2026-10-20T20:24:34.926580+00:00",
-  "script_sha256": "4f9296b81364b629e39ecc8f66b7f534e61f1b0bb4efc758f3998412681919e7",
+  "started_at": "2026-10-20T20:29:13.707500+00:00",
+  "finished_at": "2026-10-20T20:29:57.098867+00:00",
+  "script_sha256": "24a2d5636c084d3a55cec7d4d179385cab16ff829cc17d6eebfa50da63f82704",
   "integration_reference": "9e3a135a00db218643633c7165d3106f0c8285e1",
   "results": [
     {
@@ -127,10 +127,10 @@
     "httpx": "0.28.1"
   },
   "cases": [
-    "5a5e3a37-c78f-45b8-9e97-e81990153a2f",
-    "6d557891-de4d-4144-a952-72e0ffba84eb",
-    "1e4416a4-9290-4779-b980-2a1c4c4d49c3",
-    "48ef19c3-5971-4119-bff0-d97e30dfef64"
+    "d4fd2efb-4981-450b-89d1-8d63ce38b700",
+    "50682cc2-5db0-4218-9249-33f6c9e31ddc",
+    "98e78de7-4b50-42c9-8247-6752c8e86aa6",
+    "1b4ac8e8-76d8-48f8-8f54-03d147b5fadc"
   ],
   "images": {
     "db": {
