@@ -1,0 +1,33 @@
+schema_version: 1
+catalog_version: 1.0.0
+rules:
+  - id: TOTAL
+    version: 1.0.0
+    kind: deterministic
+    dependencies: ["Cláusula 2"]
+    instruction: Comparar o valor total declarado com a soma da última coluna das linhas de dados da tabela simples. Calcular com Decimal em Python.
+  - id: REGISTRY
+    version: 1.0.0
+    kind: deterministic
+    dependencies: ["Cláusula 3"]
+    instruction: Confrontar o endereço da contratante com o cadastro sintético autorizado. Divergência não prova irregularidade cadastral real.
+  - id: RELATED
+    version: 1.0.0
+    kind: deterministic
+    dependencies: ["Cláusula 2", "Cláusula 7", "Ordem de serviço"]
+    instruction: Confrontar o valor total do contrato com o valor aprovado da ordem de serviço relacionada. Ausência do documento é insuficiência de evidência.
+  - id: LIABILITY
+    version: 1.0.0
+    kind: semantic
+    required_sources: [POLICY-LIABILITY]
+    dependencies: ["Cláusula 4", "Cláusula 9"]
+    instruction: >-
+      Avaliar conjuntamente as cláusulas de responsabilidade e de limite/exceção,
+      confrontando-as com a política publicada POLICY-LIABILITY. Uma obrigação de
+      responsabilidade ilimitada em qualquer hipótese conflita com limite geral
+      e exceção restrita a dolo comprovado. Não presumir que a cláusula posterior
+      resolve silenciosamente uma contradição expressa. Se o texto remeter de
+      forma coerente ao limite e à exceção, não inventar divergência. Citar os
+      trechos originais relevantes e a fonte elegível. Sem fonte obrigatória ou
+      contexto suficiente, retornar INSUFFICIENT_EVIDENCE. Blocos locais são
+      parciais: não afirmar conformidade global a partir de uma cláusula isolada.
