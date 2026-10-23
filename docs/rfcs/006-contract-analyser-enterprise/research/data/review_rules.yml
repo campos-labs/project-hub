@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 1.0.0
+catalog_version: 1.1.0
 rules:
   - id: TOTAL
     version: 1.0.0
@@ -17,7 +17,7 @@ rules:
     dependencies: ["Cláusula 2", "Cláusula 7", "Ordem de serviço"]
     instruction: Confrontar o valor total do contrato com o valor aprovado da ordem de serviço relacionada. Ausência do documento é insuficiência de evidência.
   - id: LIABILITY
-    version: 1.0.0
+    version: 1.1.0
     kind: semantic
     required_sources: [POLICY-LIABILITY]
     dependencies: ["Cláusula 4", "Cláusula 9"]
@@ -31,3 +31,8 @@ rules:
       trechos originais relevantes e a fonte elegível. Sem fonte obrigatória ou
       contexto suficiente, retornar INSUFFICIENT_EVIDENCE. Blocos locais são
       parciais: não afirmar conformidade global a partir de uma cláusula isolada.
+      Quando uma cláusula selecionar uma faixa e outra definir os regimes por
+      faixa, avaliar somente o regime efetivamente selecionado neste contrato.
+      Um catálogo de alternativas não constitui por si só obrigação contratual.
+      Sem a seleção e a definição correspondente, retornar INSUFFICIENT_EVIDENCE;
+      não inferir a faixa pelo nome nem presumir o significado de A ou B.

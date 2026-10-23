@@ -26,7 +26,7 @@ Failure/truncation is an execution error, never a review conclusion.
 HITL, using separate CLI processes:
   uv run poc_contract_review.py await-decision --result .poc/review.json --thread approval-1
   uv run poc_contract_review.py resume --thread approval-1 --decision .poc/decision.json --output .poc/resumed.json
-Decision JSON: id, kind='change', choice='approve', proposal_id, document_hash,
+Decision JSON: id, kind='change', choice='approve', proposal_id, proposal_hash, document_hash,
 at (UTC ISO8601), actor. Acknowledge finding and contract approval are different
 decisions; this POC only materializes an explicitly approved change.
   uv run poc_contract_review.py clean --primary REDLINE --result .poc/resumed.json --decision RESOLUTIONS --output .poc/clean.docx
@@ -48,6 +48,11 @@ queue. Local SQLite is a POC checkpoint/effect ledger, not evidence for spike104
 Forced hierarchy tests routing only. Word round-trip is PENDING until separately
 verified in Word (open without repair, comments/revisions/authorship, accept or
 reject, save and reimport). Never infer human approval from disappearing XML.
+
+After the audit, evaluate --case NAME repeats only selected scenarios but keeps
+all planned scenarios/routes in the denominator. Other stale results are PENDING;
+historical output is retained under .poc/cases/history. Code changes invalidate
+analysis cache; a changed oracle recomputes discrepancies without a model call.
 
 References checked 2026-10-23:
 https://docs.langchain.com/oss/python/langgraph/interrupts
@@ -1319,7 +1324,8 @@ def load_inputs(data_dir=DATA_DIR):
     rules = read_yaml(Path(data_dir) / 'review_rules.yml')
     fixture = read_yaml(Path(data_dir) / 'operation_fixture.yml')
     # Evaluation expectations never enter the workflow state or provider payload.
-    operation = {k: v for k, v in fixture.items() if k not in {'evaluation', 'scenarios'}}
+    operation = {k:fixture[k] for k in ['schema_version','operation_id','as_of','scope','registry','evidence']
+                 if k in fixture}
     return rules, operation
 
 
@@ -1377,6 +1383,58 @@ def evaluation(rule, status, explanation, anchors=None, **extra):
                 explanation=explanation, anchors=anchors or [], evidence_ids=[], **extra)
 
 
+def strict_brl_amount(text):
+    # A table amount is the entire cell, never the first matching substring.
+    if not re.fullmatch(r'R\$\s*(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}', text.strip()):
+        raise LookupError('valor monetário ausente, inválido ou ambíguo')
+    return decimal_br(text)
+
+
+def total_table_addends(documents, primary, rule):
+    candidates = [u for u in primary if u.get('kind') == 'table_cell'
+                  and any(re.match(r'^' + re.escape(dep) + r'(?:\s|$)', u.get('heading', ''))
+                          for dep in rule['dependencies'])]
+    tables = {(u['document_hash'], u['part'], u.get('table_locator')) for u in candidates}
+    if len(tables) != 1 or next(iter(tables))[2] is None:
+        raise LookupError('tabela de valores ausente ou múltiplas tabelas ambíguas')
+    table = next(iter(tables))
+    cells = [u for u in primary if
+             (u['document_hash'], u['part'], u.get('table_locator')) == table]
+    document = next(d for d in documents if d['hash'] == table[0])
+    # Inventory flags currently identify the part, not the individual table.
+    # Refuse a potentially merged/nested table rather than infer a partial grid.
+    if any(flag.endswith((':merged_table_cells', ':nested_table'))
+           for flag in document.get('unsupported', [])):
+        raise LookupError('estrutura de tabela não suportada para calcular o total')
+    grid = {}
+    for unit in cells:
+        position = (unit.get('row'), unit.get('column'))
+        if (any(type(index) is not int or index < 0 for index in position)
+                or position in grid):
+            raise LookupError('célula ausente ou duplicada na tabela de valores')
+        grid[position] = unit
+    rows = {row for row, _column in grid}
+    if (not rows or len(rows) < 2 or rows != set(range(max(rows) + 1))
+            or set(grid) != {(row, column) for row in rows for column in range(4)}
+            or len({u['id'] for u in cells}) != len(cells)):
+        raise LookupError('tabela de valores incompleta ou não retangular')
+    expected_header = ['item', 'quantidade', 'valor unitário', 'valor total']
+    normalize = lambda text: ' '.join(text.split()).casefold()
+    if [normalize(grid[(0, col)]['proposed_view']) for col in range(4)] != expected_header:
+        raise LookupError('cabeçalho da tabela de valores não reconhecido')
+    addends, items = [], set()
+    for row in sorted(rows - {0}):
+        row_cells = [grid[(row, column)] for column in range(4)]
+        values = [normalize(unit['proposed_view']) for unit in row_cells]
+        if not all(values) or values == expected_header or values[0] in items:
+            raise LookupError('linha vazia, repetida ou ambígua na tabela de valores')
+        items.add(values[0])
+        amount_unit = row_cells[-1]
+        amount = strict_brl_amount(amount_unit['proposed_view'])
+        addends.append({'value': str(amount), 'anchor': unit_anchor(documents, amount_unit)})
+    return addends
+
+
 def deterministic_review(documents, rules, operation):
     units = flatten_units(documents)
     primary = [u for u in units if u['role'] == 'primary']
@@ -1386,20 +1444,19 @@ def deterministic_review(documents, rules, operation):
             continue
         try:
             if rule['id'] == 'TOTAL':
-                total_u = next(u for u in primary if u['proposed_view'].startswith('Valor total do contrato:'))
-                stated = money_values(total_u['proposed_view'])[0]
-                # Simple rectangular tables only: final cell of each data row.
-                amounts = [money_values(u['proposed_view'])[0] for u in primary
-                           if u.get('kind') == 'table_cell' and u.get('column') == 3
-                           and any(dep in u.get('heading','') for dep in rule['dependencies'])
-                           and money_values(u['proposed_view'])]
-                if not amounts:
-                    raise LookupError('tabela de valores indisponível')
-                calculated = sum(amounts, Decimal('0.00'))
+                totals = [u for u in primary if u['proposed_view'].startswith('Valor total do contrato:')]
+                if len(totals) != 1:
+                    raise LookupError('total declarado ausente ou ambíguo')
+                total_u = totals[0]
+                stated = strict_brl_amount(total_u['proposed_view'].removeprefix(
+                    'Valor total do contrato:').strip().removesuffix('.'))
+                addends = total_table_addends(documents, primary, rule)
+                calculated = sum((Decimal(item['value']) for item in addends), Decimal('0.00'))
                 status = 'COMPLIANT' if stated == calculated else 'FINDING'
-                anchors = [unit_anchor(documents, total_u)]
+                anchors = [unit_anchor(documents, total_u)] + [item['anchor'] for item in addends]
                 result = evaluation(rule, status, f'Declarado {stated}; soma Python/Decimal {calculated}.', anchors,
-                                    calculation={'declared': str(stated), 'calculated': str(calculated)})
+                                    calculation={'declared': str(stated), 'calculated': str(calculated),
+                                                 'addends': addends})
                 if status == 'FINDING':
                     old = re.search(r'R\$\s*[\d.]+,\d{2}', total_u['proposed_view']).group()
                     new = 'R$ ' + f'{calculated:,.2f}'.replace(',', '_').replace('.', ',').replace('_', '.')
@@ -1495,10 +1552,13 @@ def validate_semantics(response, state, units):
         anchors = []
         for cite in e['citations']:
             unit = allowed.get((cite['document_hash'], cite['unit_id']))
-            if unit is None or unit['proposed_view'][cite['start']:cite['end']] != cite['text'] or not cite['text']:
+            start, end = cite['start'], cite['end']
+            if (unit is None or type(start) is not int or type(end) is not int
+                    or not 0 <= start < end <= len(unit['proposed_view'])
+                    or unit['proposed_view'][start:end] != cite['text'] or not cite['text']):
                 raise ProviderFailure('anchor', 'Citação não corresponde ao trecho original fornecido')
             doc = next(d for d in state['documents'] if d['hash'] == cite['document_hash'])
-            anchors.append(make_anchor(doc, unit['id'], cite['start'], cite['end']))
+            anchors.append(make_anchor(doc, unit['id'], start, end))
         if set(e['evidence_ids']) - evidence_ids:
             raise ProviderFailure('source', 'Fonte não elegível citada pelo provider')
         if e['status'] in {'FINDING', 'COMPLIANT'} and (not anchors or not set(rule['required_sources']).issubset(e['evidence_ids'])):
@@ -1506,6 +1566,8 @@ def validate_semantics(response, state, units):
         item = evaluation(rule, e['status'], e['explanation'], anchors)
         item['evidence_ids'] = e['evidence_ids']
         item['provider'] = response.get('metadata', {})
+        item['proposed_text'] = e.get('proposed_text')
+        item['proposal_materialized'] = False
         results.append(item)
     return results
 
@@ -1547,12 +1609,14 @@ def build_review_graph(adapter, saver, context_budget=32768, output_limit=4096, 
         if not semantic:
             return {'route': 'none'}
         payload, missing, excluded = payload_for(state, state['selected_units'], 'direct')
+        evidence_coverage = dict(state['coverage'], excluded_evidence=excluded,
+                                 eligible_evidence_ids=[e['id'] for e in payload['evidence']])
         if missing:
             missing_results = [evaluation(r, 'INSUFFICIENT_EVIDENCE', 'Fontes obrigatórias ausentes: '+','.join(missing)) for r in semantic]
             return dict(route='none', evaluations=state['evaluations'] + missing_results,
-                        coverage=dict(state['coverage'], missing_sources=missing, excluded_evidence=excluded, semantic_completed=True))
+                        coverage=dict(evidence_coverage, missing_sources=missing, semantic_completed=True))
         if not force_hierarchy and context_size(payload, output_limit) <= context_budget:
-            return {'route': 'direct'}
+            return dict(route='direct', coverage=evidence_coverage)
         partitions, current = [], []
         for u in state['selected_units']:
             candidate, _, _ = payload_for(state, current+[u], 'local')
@@ -1565,11 +1629,34 @@ def build_review_graph(adapter, saver, context_budget=32768, output_limit=4096, 
             current.append(u)
         if current:
             partitions.append(current)
+        partitioning = 'context-budget-unit-boundaries'
         if force_hierarchy and len(partitions) == 1 and len(current)>1:
-            # An explicit routing experiment; never reported as extensive-document quality.
-            mid = len(current)//2
-            partitions = [current[:mid], current[mid:]]
-        return dict(route='hierarchical', partitions=partitions)
+            # An explicit routing experiment along real section boundaries. Splitting
+            # by unit count can put both distant clauses in the same table-heavy half.
+            sections = []
+            for unit in current:
+                key = (unit['document_hash'], unit.get('heading', ''))
+                if not sections or sections[-1][0] != key:
+                    sections.append((key, []))
+                sections[-1][1].append(unit)
+            if len(sections) > 1:
+                midpoint = len(sections)//2
+                partitions = [[u for _, section in half for u in section]
+                              for half in (sections[:midpoint], sections[midpoint:])]
+                partitioning = 'forced-semantic-section-midpoint'
+            else:
+                midpoint = len(current)//2
+                partitions = [current[:midpoint], current[midpoint:]]
+                partitioning = 'forced-single-section-unit-midpoint'
+        blocks = [dict(index=i, unit_refs=[(u['document_hash'],u['id']) for u in block],
+                       headings=list(dict.fromkeys(u.get('heading', '') for u in block)))
+                  for i, block in enumerate(partitions)]
+        dependency_blocks = {r['id']: {dep: [i for i, block in enumerate(partitions)
+                                                  if any(dep in u.get('heading', '') for u in block)]
+                                       for dep in r.get('dependencies', [])} for r in semantic}
+        return dict(route='hierarchical', partitions=partitions,
+                    coverage=dict(evidence_coverage, hierarchy_partitioning=partitioning,
+                                  hierarchy_blocks=blocks, semantic_dependency_blocks=dependency_blocks))
 
     def invoke(state, units, stage, local=None):
         payload, _, _ = payload_for(state, units, stage, local)
@@ -1588,8 +1675,12 @@ def build_review_graph(adapter, saver, context_budget=32768, output_limit=4096, 
     def local_review(state):
         try:
             response = invoke(state, state['block'], 'local')
+            # A draft explanation is still provider output. Invalid references or
+            # ineligible sources must never become trusted input to the global call.
+            validate_semantics(response, state, state['block'])
             # Local conclusions are drafts; no document-wide compliance is inferred here.
-            return {'local_results': [dict(block_refs=[(u['document_hash'],u['id']) for u in state['block']], response=response)]}
+            return {'local_results': [dict(block_refs=[(u['document_hash'],u['id']) for u in state['block']],
+                                           validated=True, response=response)]}
         except (ProviderFailure, BudgetExhausted) as exc:
             return {'local_results': [dict(error=dict(category=getattr(exc,'category','budget_exhausted'), detail=str(exc)))]}
 
@@ -1663,8 +1754,29 @@ def effects_db(path):
     conn.execute('CREATE TABLE IF NOT EXISTS decisions (id TEXT PRIMARY KEY, body TEXT NOT NULL)')
     conn.execute('CREATE TABLE IF NOT EXISTS applications (id TEXT PRIMARY KEY, body TEXT NOT NULL, status TEXT NOT NULL)')
     conn.execute('CREATE TABLE IF NOT EXISTS invalidated_revisions (hash TEXT PRIMARY KEY, successor TEXT NOT NULL)')
+    conn.execute('''CREATE TABLE IF NOT EXISTS approved_proposals (
+        document_hash TEXT NOT NULL, proposal_id TEXT NOT NULL,
+        proposal_hash TEXT NOT NULL, snapshot TEXT NOT NULL,
+        PRIMARY KEY (document_hash, proposal_id))''')
     conn.commit()
     return conn
+
+
+def proposal_snapshot(proposal):
+    """The approval covers the complete proposal, excluding its own digest."""
+    content={key:value for key,value in proposal.items() if key!='proposal_hash'}
+    for key in ['id','anchor','before','after']:
+        if key not in content:
+            raise ValueError('Proposta incompleta: '+key)
+    fingerprint=digest(content)
+    if proposal.get('proposal_hash',fingerprint)!=fingerprint:
+        raise ValueError('Conflito: conteúdo da proposta difere do hash apresentado')
+    return content,fingerprint
+
+
+def seal_proposal(proposal):
+    content,fingerprint=proposal_snapshot(proposal)
+    return dict(content,proposal_hash=fingerprint)
 
 
 def apply_once(db_path,source,proposal,decision,out_dir,crash_after_publish=False):
@@ -1672,17 +1784,28 @@ def apply_once(db_path,source,proposal,decision,out_dir,crash_after_publish=Fals
         raise ValueError('Aplicação exige aprovação explícita da mudança')
     if decision.get('document_hash')!=proposal['anchor']['doc_hash'] or decision.get('proposal_id')!=proposal['id']:
         raise ValueError('Decisão incompatível com documento/proposta')
+    snapshot,proposal_hash=proposal_snapshot(proposal)
+    if decision.get('proposal_hash')!=proposal_hash:
+        raise ValueError('Conflito: aprovação não corresponde ao conteúdo imutável da proposta')
     if not isinstance(decision.get('id'),str) or not decision['id'].strip() or not str(decision.get('actor','')).strip():
         raise ValueError('Decisão exige identificador e ator explícitos')
     decision_time=datetime.fromisoformat(decision['at'])
     if decision_time.tzinfo is None:
         raise ValueError('Decisão exige timestamp com timezone')
-    operation_id=digest(dict(proposal=proposal))[:24]
+    operation_id=digest(dict(document_hash=proposal['anchor']['doc_hash'],
+                             proposal_id=proposal['id'],proposal_hash=proposal_hash))[:24]
     body=json.dumps(decision,sort_keys=True,ensure_ascii=False)
     with effects_db(db_path) as conn:
         conn.execute('BEGIN IMMEDIATE')
         if conn.execute('SELECT 1 FROM invalidated_revisions WHERE hash=?',(proposal['anchor']['doc_hash'],)).fetchone():
             raise ValueError('Decisão obsoleta: revisão já substituída por reimportação')
+        bound=conn.execute('SELECT proposal_hash,snapshot FROM approved_proposals WHERE document_hash=? AND proposal_id=?',
+                           (proposal['anchor']['doc_hash'],proposal['id'])).fetchone()
+        serialized=json.dumps(snapshot,sort_keys=True,ensure_ascii=False)
+        if bound and bound!=(proposal_hash,serialized):
+            raise ValueError('Conflito: identidade da proposta já vinculada a outro conteúdo')
+        conn.execute('INSERT OR IGNORE INTO approved_proposals VALUES (?,?,?,?)',
+                     (proposal['anchor']['doc_hash'],proposal['id'],proposal_hash,serialized))
         existing=conn.execute('SELECT body FROM decisions WHERE id=?',(decision['id'],)).fetchone()
         if existing and existing[0]!=body:
             raise ValueError('Conflito: id de decisão reutilizado')
@@ -1705,7 +1828,7 @@ def apply_once(db_path,source,proposal,decision,out_dir,crash_after_publish=Fals
         timestamp=decision['at']
         record=write_redline(source,proposal,pending,operation_id,timestamp)
         record.update(path=str(final.resolve()),temporary=str(pending.resolve()),operation_id=operation_id,
-                      hash=record['output_hash'],decision_id=decision['id'])
+                      hash=record['output_hash'],decision_id=decision['id'],proposal_hash=proposal_hash)
         # Prepared artifact hash and intent precede publication; replay never patches redline again.
         with effects_db(db_path) as conn:
             conn.execute('INSERT INTO applications VALUES (?,?,?)',(operation_id,json.dumps(record),'PREPARED'))
@@ -1728,7 +1851,9 @@ class DecisionState(TypedDict,total=False):
 
 def build_decision_graph(saver,db_path,out_dir,crash=False):
     def await_decision(state):
-        decision=interrupt(dict(kind='change',proposal=state['proposal'],document_hash=state['proposal']['anchor']['doc_hash']))
+        sealed=seal_proposal(state['proposal'])
+        decision=interrupt(dict(kind='change',proposal=sealed,proposal_hash=sealed['proposal_hash'],
+                                document_hash=state['proposal']['anchor']['doc_hash']))
         if not isinstance(decision,dict):
             raise ValueError('Decisão deve ser objeto JSON explícito')
         return {'decision':decision}
@@ -1751,6 +1876,7 @@ def run_review(args,adapter):
                                rule_snapshot=digest(catalog),operation_snapshot=digest(operation),
                                original_hashes=[d['hash'] for d in docs],versions=versions(),
                                simulated=isinstance(adapter,ControlledAdapter),word_roundtrip='PENDING'))
+    result['proposals']=[seal_proposal(proposal) for proposal in result['proposals']]
     json_write(args.output,result)
     return result
 
@@ -1798,6 +1924,7 @@ def main():
     parser.add_argument('--mode',choices=['FULL','FOCAL'],default='FULL')
     parser.add_argument('--rule',action='append')
     parser.add_argument('--unit',action='append')
+    parser.add_argument('--case',action='append',help='Executar somente estes cenários; os demais continuam no denominador como pendentes se o cache estiver obsoleto')
     parser.add_argument('--result',type=Path,help='Resultado da revisão anterior')
     parser.add_argument('--decision',type=Path,help='JSON da decisão humana; fixtures de testes são simulações')
     parser.add_argument('--proposal-id')
@@ -1898,14 +2025,28 @@ def evaluate_cases(args,adapter):
     fixture=read_yaml(args.data_dir/'operation_fixture.yml')
     cases=fixture['scenarios']
     expectations=fixture['evaluation']
+    requirements=fixture.get('evaluation_requirements',{})
     out=args.output.parent/'cases'; out.mkdir(parents=True,exist_ok=True)
     results=[]
+    implementation_hash=implementation_fingerprint()
+    selected_cases=set(getattr(args,'case',None) or [case['id'] for case in cases])
+    if selected_cases-{case['id'] for case in cases}:
+        raise ValueError('Cenário de avaliação desconhecido')
+    rule_ids={rule['id'] for rule in catalog['rules']}
     # Planned denominator is fixed before calls. Exhaustion never drops a case.
     for case in cases:
         case_id=case['id']
         primary=out/f'{case_id}.docx'
         variant_docx(args.primary,primary,case.get('replacements',[]))
         current=copy.deepcopy(operation)
+        overrides=case.get('operation_overrides',{})
+        if set(overrides)-{'evidence_updates'}:
+            raise ValueError('Override de cenário não suportado')
+        for update in overrides.get('evidence_updates',[]):
+            matches=[e for e in current['evidence'] if e['id']==update.get('id')]
+            if len(matches)!=1:
+                raise ValueError('Override exige uma evidência identificada sem ambiguidade')
+            matches[0].update(copy.deepcopy(update))
         if case.get('missing_source'):
             current['evidence']=[e for e in current['evidence'] if e['id']!=case['missing_source']]
         related=None if case.get('missing_related') else args.related
@@ -1916,49 +2057,434 @@ def evaluate_cases(args,adapter):
             configuration=digest(dict(documents=[d['hash'] for d in docs],catalog=catalog,operation=current,
                                       model=getattr(adapter,'model','simulated'),prompt=PROMPT_VERSION,
                                       context_budget=args.context_budget,output_limit=args.max_output_tokens,
-                                      timeout=args.timeout,route=route))
+                                      timeout=args.timeout,route=route,implementation_hash=implementation_hash,
+                                      versions=versions(),adapter=type(adapter).__name__))
+            expected=expectations[case_id]
+            requirement=requirements.get(case_id,{})
+            if set(expected)!=rule_ids:
+                raise ValueError('Gabarito deve cobrir exatamente as regras do catálogo')
+            saved=None
             if result_path.exists():
                 saved=json.loads(result_path.read_text(encoding='utf-8'))
-                if saved.get('configuration')==configuration and saved.get('execution_status')=='READY_FOR_REVIEW':
+                if (saved.get('configuration')==configuration and saved.get('execution_status')=='READY_FOR_REVIEW'
+                        and saved.get('coverage',{}).get('complete') and not saved.get('errors')):
+                    # The oracle is evaluation-only and may have changed without a model call.
+                    saved.update(expected=copy.deepcopy(expected),
+                                 discrepancies=compare_expectations(expected,saved['observed']),
+                                 validation_failures=evaluate_requirements(saved,requirement,docs),
+                                 expectations_hash=digest(dict(statuses=expected,requirements=requirement)),cache_reused=True)
+                    saved['real_model_executed']=any(call.get('simulated') is False for call in saved.get('calls',[]))
+                    saved['semantic_demonstrated']=(saved['real_model_executed'] and not saved['discrepancies']
+                                                    and not saved['validation_failures'])
+                    json_write(result_path,saved)
                     results.append(saved)
                     continue
+                history=out/'history'/f'{result_path.stem}-{digest(saved)[:16]}.json'
+                if not history.exists():
+                    json_write(history,saved)
+            else:
+                history=None
+            if case_id not in selected_cases:
+                pending=dict(case_id=case_id,route=route,execution_route=None,expected=copy.deepcopy(expected),observed={},
+                             discrepancies={},execution_status='PENDING',semantic_demonstrated=False,
+                             errors=[dict(category='not_selected',detail='Não repetido com a implementação atual; histórico não conta como validação')],
+                             coverage=dict(complete=False,pending_rules=sorted(rule_ids)),evaluations=[],
+                             original_hashes=[d['hash'] for d in docs],configuration=configuration,
+                             implementation_hash=implementation_hash,
+                             expectations_hash=digest(dict(statuses=expected,requirements=requirement)),
+                             cache_reused=False,historical_result=str(history) if history else None,
+                             validation_failures=[],
+                             artificial_route=route=='hierarchical',simulated=isinstance(adapter,ControlledAdapter),
+                             calls=[],tokens={},latency_ms=0,invalid_references=0,cost_usd=None)
+                json_write(result_path,pending)
+                results.append(pending)
+                continue
             started=time.monotonic()
             with SqliteSaver.from_conn_string(str(args.db)) as saver:
                 graph=build_review_graph(adapter,saver,args.context_budget,args.max_output_tokens,route=='hierarchical')
                 state=graph.invoke(new_review(docs,catalog,current),
                                    {'configurable':{'thread_id':f'{args.thread}:{case_id}:{route}'}})
             observed={e['rule_id']:e['status'] for e in state['evaluations']}
-            expected=expectations[case_id]
-            discrepancies={r:dict(expected=s,observed=observed.get(r)) for r,s in expected.items() if observed.get(r)!=s}
+            discrepancies=compare_expectations(expected,observed)
             simulated=isinstance(adapter,ControlledAdapter)
             calls=[item['response']['metadata'] for item in state['local_results'] if 'response' in item]
             calls.extend(e['provider'] for e in state['evaluations'] if 'provider' in e)
+            simulated=simulated or any(call.get('simulated') is True for call in calls)
             token_metrics={key:sum(c.get('tokens',{}).get(key) or 0 for c in calls)
                            for key in ['input','output','thought','total','cached']}
-            record=dict(case_id=case_id,route=route,expected=expected,observed=observed,
+            record=dict(case_id=case_id,route=route,execution_route=state['route'],expected=expected,observed=observed,
                         discrepancies=discrepancies,execution_status=state['result_status'],
                         semantic_demonstrated=any(e.get('provider',{}).get('simulated') is False for e in state['evaluations']),
                         errors=state['errors'],coverage=state['coverage'],
                         evaluations=state['evaluations'],original_hashes=[d['hash'] for d in docs],
                         artificial_route=route=='hierarchical',simulated=simulated,configuration=configuration,
+                        implementation_hash=implementation_hash,
+                        expectations_hash=digest(dict(statuses=expected,requirements=requirement)),cache_reused=False,
+                        historical_result=str(history) if history else None,
+                        local_results=state['local_results'],
                         calls=calls,tokens=token_metrics,latency_ms=round((time.monotonic()-started)*1000,3),
                         invalid_references=sum(e['category'] in {'anchor','source'} for e in state['errors']),cost_usd=None)
+            record['validation_failures']=evaluate_requirements(record,requirement,docs)
+            record['real_model_executed']=any(call.get('simulated') is False for call in calls)
+            record['semantic_demonstrated']=(record['real_model_executed'] and not discrepancies
+                                             and not record['validation_failures'] and not record['errors'])
             json_write(result_path,record)
             results.append(record)
     pending=[f"{r['case_id']}:{r['route']}" for r in results
              if r['errors'] or r['execution_status']!='READY_FOR_REVIEW' or not r['coverage'].get('complete')]
     failed=[f"{r['case_id']}:{r['route']}" for r in results
-            if r['discrepancies'] and f"{r['case_id']}:{r['route']}" not in pending]
+            if (r['discrepancies'] or r.get('validation_failures')) and f"{r['case_id']}:{r['route']}" not in pending]
     summary=dict(planned=len(results),executed=len(results)-len(pending),pending=pending,failed=failed,
-                 matched=len(results)-len(pending)-len(failed),simulated=isinstance(adapter,ControlledAdapter))
+                 matched=len(results)-len(pending)-len(failed),simulated=any(r['simulated'] for r in results),
+                 scenarios=len(cases),selected_cases=sorted(selected_cases),
+                 reused=sum(r.get('cache_reused',False) for r in results),implementation_hash=implementation_hash)
     if hasattr(adapter,'budget'):
         summary['budget']=adapter.budget.summary()
-    return dict(result_status='INCOMPLETE' if pending or failed or isinstance(adapter,ControlledAdapter) else 'VALIDATED_SYNTHETIC_SLICE',
+    return dict(result_status='INCOMPLETE' if pending or failed or summary['simulated'] else 'VALIDATED_SYNTHETIC_SLICE',
                 summary=summary,cases=results,
                 manifest=dict(versions=versions(),prompt_version=PROMPT_VERSION,rule_snapshot=digest(catalog),
+                              implementation_hash=implementation_hash,
+                              expectations_hash=digest(dict(statuses=expectations,requirements=requirements)),
                               context_gate='conservative UTF-8 byte upper bound + schema/instructions + output reserve',
                               word_roundtrip='PENDING',long_document_quality='PENDING',
                               limitation='Hierarquia forçada é teste de roteamento; não homologa contratos extensos.'))
+
+
+def compare_expectations(expected,observed):
+    return {rule_id:dict(expected=status,observed=observed.get(rule_id))
+            for rule_id,status in expected.items() if observed.get(rule_id)!=status}
+
+
+def evaluate_requirements(record,requirement,documents):
+    """Evaluate observed intermediate/final evidence; never feed criteria to the model."""
+    if not requirement:
+        return []
+    failures=[]
+    rule_id=requirement['rule_id']
+    dependencies=requirement['dependencies']
+    refs={(unit['document_hash'],unit['id']):unit for unit in flatten_units(documents)}
+    evaluations=[e for e in record.get('evaluations',[]) if e['rule_id']==rule_id]
+    final_anchors=[anchor for e in evaluations for anchor in e['anchors']]
+    for dependency in dependencies:
+        if not any((anchor['doc_hash'],anchor['unit_id']) in refs
+                   and refs[(anchor['doc_hash'],anchor['unit_id'])]['kind']!='heading'
+                   and re.match(r'^'+re.escape(dependency)+r'(?:\s|$)',
+                                refs[(anchor['doc_hash'],anchor['unit_id'])].get('heading',''))
+                   for anchor in final_anchors):
+            failures.append('final_missing_dependency_anchor:'+dependency)
+    if record['route']=='hierarchical':
+        groups=record.get('coverage',{}).get('semantic_dependency_blocks',{}).get(rule_id,{})
+        if (any(not groups.get(dep) for dep in dependencies)
+                or any(set(groups[left]) & set(groups[right])
+                       for i,left in enumerate(dependencies) for right in dependencies[i+1:])):
+            failures.append('dependencies_not_in_distinct_blocks')
+        locals=record.get('local_results',[])
+        if (len(locals)<2 or any(not local.get('validated') for local in locals)
+                or any(not any(e['rule_id']==rule_id and e['status']==requirement['local_status']
+                               for e in local.get('response',{}).get('evaluations',[])) for local in locals)):
+            failures.append('local_results_not_insufficient_before_reunion')
+    return failures
+
+
+def implementation_fingerprint():
+    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+def table_audit_checks(poc):
+    rules, operation = poc.load_inputs()
+    rule = next(rule for rule in rules['rules'] if rule['id'] == 'TOTAL')
+    original = [poc.ingest_docx(poc.DATA_DIR / 'contract_reference.docx')]
+    checks = []
+
+    def run(name, mutate=None, valid=False):
+        documents = copy.deepcopy(original)
+        if mutate:
+            mutate(documents[0]['units'])
+        evaluations, proposals = poc.deterministic_review(documents, [rule], operation)
+        result = evaluations[0]
+        if valid:
+            assert result['status'] == 'FINDING', result
+            assert result['calculation']['calculated'] == '11000.00', result
+            assert proposals[0]['after'] == 'R$ 11.000,00', proposals
+            addends = result['calculation']['addends']
+            assert [item['value'] for item in addends] == ['5000.00', '6000.00'], addends
+            assert [item['anchor']['text'] for item in addends] == ['R$ 5.000,00', 'R$ 6.000,00']
+            for item in addends:
+                poc.validate_anchor(documents[0], item['anchor'])
+            assert len(result['anchors']) == 3
+        else:
+            assert result['status'] == 'INSUFFICIENT_EVIDENCE', result
+            assert not proposals, proposals
+            assert 'calculation' not in result, result
+        checks.append({'name': name, 'passed': True})
+
+    def cell(units, row=2, column=3):
+        return next(unit for unit in units if unit.get('kind') == 'table_cell'
+                    and unit.get('row') == row and unit.get('column') == column)
+
+    def set_amount(text):
+        return lambda units: cell(units).update(proposed_view=text)
+
+    run('total_complete_addends_anchored', valid=True)
+    run('total_pending_cell_is_insufficient', set_amount('valor pendente'))
+    run('total_empty_cell_is_insufficient', set_amount(''))
+    run('total_malformed_grouping_is_insufficient', set_amount('R$ 6.00,00'))
+    run('total_wrong_decimal_places_is_insufficient', set_amount('R$ 6.000,0'))
+    run('total_multiple_amounts_are_insufficient', set_amount('R$ 6.000,00 ou R$ 7.000,00'))
+    run('total_missing_cell_is_insufficient', lambda units: units.remove(cell(units)))
+    run('total_missing_intermediate_row_is_insufficient', lambda units: units.__setitem__(
+        slice(None), [unit for unit in units if not
+                      (unit.get('kind') == 'table_cell' and unit.get('row') == 1)]))
+    run('total_duplicate_cell_is_insufficient', lambda units: units.append(copy.deepcopy(cell(units))))
+    run('total_duplicate_item_is_insufficient', lambda units: cell(units, 2, 0).update(
+        proposed_view=cell(units, 1, 0)['proposed_view']))
+    run('total_empty_row_field_is_insufficient', lambda units: cell(units, 2, 1).update(proposed_view=''))
+    run('total_unknown_header_is_insufficient', lambda units: cell(units, 0, 3).update(proposed_view='Saldo'))
+
+    def duplicate_table(units):
+        for unit in list(units):
+            if unit.get('kind') == 'table_cell':
+                duplicate = copy.deepcopy(unit)
+                duplicate['id'] += '-table2'
+                duplicate['table_locator'] += '/duplicate'
+                units.append(duplicate)
+
+    def repeat_header(units):
+        for column in range(4):
+            cell(units, 2, column)['proposed_view'] = cell(units, 0, column)['proposed_view']
+
+    run('total_multiple_tables_are_insufficient', duplicate_table)
+    run('total_repeated_header_is_insufficient', repeat_header)
+    return checks
+
+def hierarchy_audit_checks(poc, root):
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    catalog, operation = poc.load_inputs()
+    fixture = poc.read_yaml(poc.DATA_DIR / 'operation_fixture.yml')
+    case = next(c for c in fixture['scenarios'] if c['id'] == 'cross_block_liability')
+    primary = root / 'cross-block.docx'
+    poc.variant_docx(poc.DATA_DIR / 'contract_reference.docx', primary, case['replacements'])
+    for update in case['operation_overrides']['evidence_updates']:
+        next(e for e in operation['evidence'] if e['id'] == update['id']).update(update)
+    docs = poc.workspace(primary, poc.DATA_DIR / 'related_reference.docx')
+    units = poc.flatten_units(docs)
+    clause4 = next(u for u in units if 'Para este contrato foi selecionada' in u['proposed_view'])
+    clause9 = next(u for u in units if 'Catálogo de regimes' in u['proposed_view'])
+    passed = []
+
+    def check(name, condition):
+        if not condition:
+            raise AssertionError(name)
+        passed.append(name)
+
+    def citation(unit):
+        return dict(document_hash=unit['document_hash'], unit_id=unit['id'],
+                    start=0, end=len(unit['proposed_view']), text=unit['proposed_view'])
+
+    def evaluation(status='INSUFFICIENT_EVIDENCE', citations=None, evidence_ids=None):
+        return dict(rule_id='LIABILITY', status=status, explanation='Controlled orchestration fixture.',
+                    citations=citations or [], evidence_ids=evidence_ids or [], proposed_text=None)
+
+    class Adapter(poc.ControlledAdapter):
+        def __init__(self, invalid=None):
+            self.invalid, self.calls = invalid, []
+
+        def review(self, payload, label):
+            self.calls.append(copy.deepcopy(payload))
+            refs = {(u['document_hash'], u['unit_id']) for u in payload['document_units']}
+            has4 = (clause4['document_hash'], clause4['id']) in refs
+            has9 = (clause9['document_hash'], clause9['id']) in refs
+            if label == 'local' and self.invalid:
+                if self.invalid == 'revoked_source':
+                    result = evaluation(evidence_ids=['POLICY-REVOKED'])
+                elif self.invalid == 'cross_block':
+                    result = evaluation(citations=[citation(clause9 if not has9 else clause4)])
+                else:
+                    cite = citation(clause4)
+                    cite['unit_id'] = 'nonexistent-unit'
+                    result = evaluation(citations=[cite])
+            elif has4 and has9:
+                result = evaluation('FINDING', [citation(clause4), citation(clause9)], ['POLICY-LIABILITY'])
+                result['proposed_text'] = 'Synthetic suggestion retained without materializing a proposal.'
+            else:
+                result = evaluation()
+            return dict(evaluations=[result], metadata=dict(simulated=True, model='controlled-audit'))
+
+    def invoke(adapter, force=True, documents=None):
+        return poc.build_review_graph(adapter, None, force_hierarchy=force).invoke(
+            poc.new_review(documents or docs, catalog, operation))
+
+    for invalid, category in [('unknown_anchor', 'anchor'), ('cross_block', 'anchor'), ('revoked_source', 'source')]:
+        adapter = Adapter(invalid)
+        state = invoke(adapter)
+        check(f'local_{invalid}_blocks_global',
+              len([c for c in adapter.calls if c['stage'] == 'local']) == 2
+              and not any(c['stage'] == 'global' for c in adapter.calls)
+              and state['result_status'] == 'INCOMPLETE'
+              and state['errors'] and all(e['category'] == category for e in state['errors']))
+
+    adapter = Adapter()
+    hierarchical = invoke(adapter)
+    blocks = hierarchical['coverage']['semantic_dependency_blocks']['LIABILITY']
+    check('cross_block_dependencies_are_disjoint',
+          blocks['Cláusula 4'] and blocks['Cláusula 9']
+          and set(blocks['Cláusula 4']).isdisjoint(blocks['Cláusula 9']))
+    check('cross_block_two_partial_local_results',
+          len(hierarchical['local_results']) == 2
+          and all(lr['validated'] and lr['response']['evaluations'][0]['status'] == 'INSUFFICIENT_EVIDENCE'
+                  for lr in hierarchical['local_results']))
+    check('cross_block_global_reunites_both',
+          len(adapter.calls) == 3
+          and len(next(e for e in hierarchical['evaluations'] if e['rule_id'] == 'LIABILITY')['anchors']) == 2
+          and {u['unit_id'] for u in adapter.calls[-1]['document_units']} >= {clause4['id'], clause9['id']})
+    result = next(e for e in hierarchical['evaluations'] if e['rule_id'] == 'LIABILITY')
+    check('semantic_suggestion_retained_unmaterialized', result['proposed_text'] is not None
+          and result['proposal_materialized'] is False
+          and all(p['rule_id'] != 'LIABILITY' for p in hierarchical['proposals']))
+    direct = invoke(Adapter(), False)
+    check('controlled_direct_hierarchical_agree',
+          {e['rule_id']: e['status'] for e in direct['evaluations']}
+          == {e['rule_id']: e['status'] for e in hierarchical['evaluations']})
+    for removed, unit in [('selection', clause4), ('definition', clause9)]:
+        partial_docs = copy.deepcopy(docs)
+        for d in partial_docs:
+            d['units'] = [u for u in d['units'] if not (d['hash'] == unit['document_hash'] and u['id'] == unit['id'])]
+        partial = invoke(Adapter(), False, partial_docs)
+        check(f'cross_block_{removed}_alone_is_insufficient',
+              next(e for e in partial['evaluations'] if e['rule_id'] == 'LIABILITY')['status'] == 'INSUFFICIENT_EVIDENCE')
+
+    revoked_case = next(c for c in fixture['scenarios'] if c['id'] == 'revoked_evidence')
+    revoked_operation = copy.deepcopy(operation)
+    for update in revoked_case['operation_overrides']['evidence_updates']:
+        next(e for e in revoked_operation['evidence'] if e['id'] == update['id']).update(update)
+    revoked_adapter = Adapter()
+    revoked_state = poc.build_review_graph(revoked_adapter, None).invoke(poc.new_review(docs, catalog, revoked_operation))
+    check('revoked_mandatory_source_distinct_input_and_no_model_call',
+          revoked_operation != operation and not revoked_adapter.calls
+          and revoked_state['coverage']['missing_sources'] == ['POLICY-LIABILITY']
+          and 'POLICY-LIABILITY' in revoked_state['coverage']['excluded_evidence']
+          and 'POLICY-LIABILITY' not in revoked_state['coverage']['eligible_evidence_ids']
+          and next(e for e in revoked_state['evaluations'] if e['rule_id'] == 'LIABILITY')['status'] == 'INSUFFICIENT_EVIDENCE')
+
+    bad = citation(clause4)
+    bad.update(start=-len(clause4['proposed_view']), end=len(clause4['proposed_view']))
+    try:
+        poc.validate_semantics(dict(evaluations=[evaluation(citations=[bad])]),
+                               poc.new_review(docs, catalog, operation), units)
+    except poc.ProviderFailure as exc:
+        check('negative_citation_offsets_rejected', exc.category == 'anchor')
+    else:
+        raise AssertionError('negative_citation_offsets_rejected')
+    return dict(status='PASSED', checks=passed, controlled_only=True, real_calls=0,
+                hierarchy_coverage=hierarchical['coverage'])
+
+
+def cache_audit_checks(root):
+    """The oracle/code changes occur in isolated copies, never in reference data."""
+    import importlib.util
+    root=Path(root);root.mkdir(parents=True,exist_ok=True)
+    cloned_source=root/'cache_probe.py'
+    cloned_source.write_bytes(Path(__file__).read_bytes())
+    name='poc_cache_audit_'+digest(str(root))[:12]
+    spec=importlib.util.spec_from_file_location(name,cloned_source)
+    module=importlib.util.module_from_spec(spec)
+    sys.modules[name]=module
+    spec.loader.exec_module(module)
+    data=root/'data';data.mkdir()
+    catalog,operation=load_inputs()
+    catalog['rules']=[r for r in catalog['rules'] if r['id']=='TOTAL']
+    fixture=dict(operation,scenarios=[dict(id='cache_a'),dict(id='cache_b')],
+                 evaluation={'cache_a':{'TOTAL':'FINDING'},'cache_b':{'TOTAL':'FINDING'}})
+    (data/'review_rules.yml').write_text(yaml.safe_dump(catalog,allow_unicode=True),encoding='utf-8')
+    (data/'operation_fixture.yml').write_text(yaml.safe_dump(fixture,allow_unicode=True),encoding='utf-8')
+    args=argparse.Namespace(data_dir=data,primary=DATA_DIR/'contract_reference.docx',
+                            related=DATA_DIR/'related_reference.docx',output=root/'evaluation.json',
+                            db=root/'checkpoint.sqlite',thread='cache-audit',context_budget=32768,
+                            max_output_tokens=4096,timeout=60,case=None)
+    class NoProvider:
+        model='controlled-deterministic-only'
+        def review(self,*_args):
+            raise AssertionError('Cache audit must not invoke a provider')
+    first=module.evaluate_cases(args,NoProvider())
+    if first['summary']['matched']!=2 or first['summary']['reused']:
+        raise AssertionError('cache_initial_observations')
+    fixture['evaluation']['cache_a']['TOTAL']='COMPLIANT'
+    (data/'operation_fixture.yml').write_text(yaml.safe_dump(fixture,allow_unicode=True),encoding='utf-8')
+    changed=module.evaluate_cases(args,NoProvider())
+    observed=next(c for c in changed['cases'] if c['case_id']=='cache_a')
+    if (changed['summary']['reused']!=2 or changed['summary']['failed']!=['cache_a:direct']
+            or observed['expected']['TOTAL']!='COMPLIANT'
+            or observed['discrepancies']['TOTAL']!={'expected':'COMPLIANT','observed':'FINDING'}):
+        raise AssertionError('cache_current_expectations_recomputed')
+    fixture['evaluation_requirements']={'cache_b':dict(rule_id='TOTAL',dependencies=['Cláusula 9'],
+                                                       local_status='INSUFFICIENT_EVIDENCE')}
+    (data/'operation_fixture.yml').write_text(yaml.safe_dump(fixture,allow_unicode=True),encoding='utf-8')
+    changed_criteria=module.evaluate_cases(args,NoProvider())
+    if (changed_criteria['summary']['reused']!=2 or len(changed_criteria['summary']['failed'])!=2
+            or not next(c for c in changed_criteria['cases'] if c['case_id']=='cache_b')['validation_failures']
+            or 'evaluation_requirements' in module.load_inputs(data)[1]):
+        raise AssertionError('cache_current_requirements_recomputed_without_oracle_leak')
+    with cloned_source.open('a',encoding='utf-8') as stream:
+        stream.write('\n# Isolated implementation change for cache invalidation regression.\n')
+    args.case=['cache_a']
+    changed_code=module.evaluate_cases(args,NoProvider())
+    if (changed_code['summary']['reused'] or changed_code['summary']['planned']!=2
+            or changed_code['summary']['executed']!=1 or changed_code['summary']['pending']!=['cache_b:direct']
+            or changed_code['manifest']['implementation_hash']==first['manifest']['implementation_hash']):
+        raise AssertionError('cache_implementation_change_invalidates')
+    stale=next(c for c in changed_code['cases'] if c['case_id']=='cache_b')
+    if not stale['historical_result'] or not Path(stale['historical_result']).exists():
+        raise AssertionError('cache_history_preserved')
+    return ['cache_current_expectations_recomputed','cache_code_change_invalidates',
+            'cache_subset_preserves_denominator','cache_history_preserved',
+            'cache_requirements_recomputed_without_oracle_leak']
+
+
+def intermediate_evaluation_checks(root):
+    root=Path(root);root.mkdir(parents=True,exist_ok=True)
+    data=root/'data';data.mkdir()
+    for name in ['operation_fixture.yml','review_rules.yml']:
+        (data/name).write_bytes((DATA_DIR/name).read_bytes())
+    args=argparse.Namespace(data_dir=data,primary=DATA_DIR/'contract_reference.docx',
+                            related=DATA_DIR/'related_reference.docx',output=root/'evaluation.json',
+                            db=root/'checkpoint.sqlite',thread='intermediate-audit',context_budget=32768,
+                            max_output_tokens=4096,timeout=60,case=['cross_block_liability'])
+    class WrongIntermediateAdapter:
+        model='controlled-wrong-intermediate-findings'
+        def review(self,payload,_label):
+            candidates=[u for u in payload['document_units'] if
+                        'Cláusula 4' in u['heading'] or 'Cláusula 9' in u['heading']]
+            unit=candidates[0]
+            result=dict(rule_id='LIABILITY',status='FINDING',explanation='Deliberately wrong partial inference.',
+                        citations=[dict(document_hash=unit['document_hash'],unit_id=unit['unit_id'],
+                                        start=0,end=len(unit['text']),text=unit['text'])],
+                        evidence_ids=['POLICY-LIABILITY'],proposed_text=None)
+            return dict(evaluations=[result],metadata=dict(simulated=True,model=self.model))
+    evaluated=evaluate_cases(args,WrongIntermediateAdapter())
+    hierarchical=next(c for c in evaluated['cases'] if c['case_id']=='cross_block_liability' and c['route']=='hierarchical')
+    if (hierarchical['discrepancies'] or 'local_results_not_insufficient_before_reunion' not in hierarchical['validation_failures']
+            or not any(f.startswith('final_missing_dependency_anchor:') for f in hierarchical['validation_failures'])
+            or 'cross_block_liability:hierarchical' not in evaluated['summary']['failed']
+            or hierarchical['semantic_demonstrated']):
+        raise AssertionError('cross_block_intermediate_acceptance_not_enforced')
+    class LocalResponseGlobalFailure(WrongIntermediateAdapter):
+        def review(self,payload,label):
+            if label=='global':
+                raise ProviderFailure('schema','controlled_global_failure')
+            result=super().review(payload,label)
+            # Controlled metadata exercises accounting; this adapter never sends HTTP.
+            result['metadata']['simulated']=False
+            return result
+    args.output=root/'local-metrics'/'evaluation.json'
+    args.thread='local-metrics'
+    failed=evaluate_cases(args,LocalResponseGlobalFailure())
+    partial=next(c for c in failed['cases'] if c['case_id']=='cross_block_liability' and c['route']=='hierarchical')
+    if (not partial['real_model_executed'] or partial['semantic_demonstrated']
+            or partial['execution_status']!='INCOMPLETE' or len(partial['calls'])!=2):
+        raise AssertionError('local_execution_accounting_after_global_failure')
+    return ['cross_block_wrong_local_conclusion_fails_evaluation','cross_block_single_final_anchor_fails_evaluation',
+            'local_execution_recorded_after_global_failure']
 
 
 def self_checks(args):
@@ -2046,7 +2572,8 @@ def self_checks(args):
     result_file=root/'initial.json'
     json_write(result_file,dict(documents=docs,proposals=proposals))
     decision=dict(id='human-simulation-1',kind='change',choice='approve',proposal_id=proposal['id'],
-                  document_hash=doc['hash'],at=stamp,actor='SIMULATED TEST DECISION',simulated=True)
+                  proposal_hash=proposal_snapshot(proposal)[1],document_hash=doc['hash'],at=stamp,
+                  actor='SIMULATED TEST DECISION',simulated=True)
     decision_file=root/'decision.json';json_write(decision_file,decision)
     def cli(command,thread='hitl',extra=None,expected_exit=0):
         cmd=[sys.executable,str(Path(__file__).resolve()),command,'--primary',str(primary),
@@ -2067,10 +2594,21 @@ def self_checks(args):
     another=dict(decision,id='another-command-for-same-proposal')
     reused=apply_once(root/'checkpoint.sqlite',primary,proposal,another,root)
     check('new_decision_same_effect',reused['operation_id']==first['application']['operation_id'])
+    changed=copy.deepcopy(proposal);changed['after']='R$ 9.999,00'
+    rejects('approval_rejects_modified_after',lambda:apply_once(root/'checkpoint.sqlite',primary,changed,decision,root))
+    changed_decision=dict(decision,id='new-command-altered-proposal',proposal_hash=proposal_snapshot(changed)[1])
+    rejects('proposal_identity_bound_to_content',lambda:apply_once(root/'checkpoint.sqlite',primary,changed,changed_decision,root))
+    shifted=copy.deepcopy(proposal);shifted['anchor']['start']+=1
+    rejects('approval_rejects_modified_anchor',lambda:apply_once(root/'checkpoint.sqlite',primary,shifted,decision,root))
+    with effects_db(root/'checkpoint.sqlite') as conn:
+        check('conflicting_approval_no_extra_effect',conn.execute('SELECT count(*) FROM applications').fetchone()[0]==1
+              and conn.execute('SELECT count(*) FROM decisions').fetchone()[0]==1
+              and conn.execute('SELECT count(*) FROM approved_proposals').fetchone()[0]==1)
     # Separate decision to exercise crash after file publication but before completion.
     crash_proposal=dict(id='communication-proposal',anchor=pa,before=pa['text'],after='A comunicação será feita por e-mail.')
     json_write(result_file,dict(documents=docs,proposals=[crash_proposal]))
-    decision.update(id='human-simulation-crash',proposal_id=crash_proposal['id']);json_write(decision_file,decision)
+    decision.update(id='human-simulation-crash',proposal_id=crash_proposal['id'],
+                    proposal_hash=proposal_snapshot(crash_proposal)[1]);json_write(decision_file,decision)
     cli('await-decision','crash');cli('resume','crash',['--crash-after-publish'],73)
     crash_path=cli('resume','crash')
     recovered=json.loads(crash_path.read_text(encoding='utf-8'))
@@ -2084,6 +2622,11 @@ def self_checks(args):
     with effects_db(root/'checkpoint.sqlite') as conn:
         conn.execute('INSERT INTO invalidated_revisions VALUES (?,?)',(doc['hash'],cleaned['hash']))
     rejects('old_decision_after_reimport',lambda:apply_once(root/'checkpoint.sqlite',primary,proposal,another,root))
+    module=sys.modules[__name__]
+    passed.extend(item['name'] for item in table_audit_checks(module))
+    passed.extend(hierarchy_audit_checks(module,root/'hierarchy-audit')['checks'])
+    passed.extend(cache_audit_checks(root/'cache-audit'))
+    passed.extend(intermediate_evaluation_checks(root/'intermediate-audit'))
     # Adapter-controlled retry/timeout/schema and total-attempt boundary tests.
     provider_results=provider_self_checks(root/'provider')
     return dict(status='PASS',checks=passed,provider_checks=provider_results,

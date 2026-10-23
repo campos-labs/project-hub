@@ -56,12 +56,28 @@ scenarios:
         after: A responsabilidade da contratada observa o limite e a exceção da Cláusula 9.
   - id: distant_exception
     compare_routes: true
+  - id: cross_block_liability
+    compare_routes: true
+    replacements:
+      - before: A responsabilidade da contratada é ilimitada em qualquer hipótese.
+        after: Para este contrato foi selecionada a Faixa B de responsabilidade. O regime aplicável à faixa selecionada está definido na Cláusula 9.
+      - before: A responsabilidade fica limitada ao valor total do contrato, exceto em caso de dolo comprovado.
+        after: Catálogo de regimes de responsabilidade. Faixa A corresponde a responsabilidade limitada ao valor total do contrato, exceto em caso de dolo comprovado. Faixa B corresponde a responsabilidade ilimitada em qualquer hipótese. Aplica-se somente a faixa selecionada na Cláusula 4; as demais alternativas não constituem obrigação deste contrato.
+    operation_overrides:
+      evidence_updates:
+        - id: POLICY-LIABILITY
+          version: 1.1.0
+          text: Política sintética aprovada. O regime efetivamente selecionado neste contrato deve limitar a responsabilidade da contratada ao valor total do contrato. Somente dolo comprovado pode excepcionar esse limite. Um catálogo de faixas não selecionadas não constitui obrigação deste contrato e não é, por si só, uma violação. Para avaliar a obrigação, são necessárias tanto a seleção da faixa quanto sua definição. As cláusulas devem ser coerentes entre si.
   - id: related_reference
     missing_related: true
     replacements:
       - before: A responsabilidade da contratada é ilimitada em qualquer hipótese.
         after: A responsabilidade da contratada observa o limite e a exceção da Cláusula 9.
   - id: revoked_evidence
+    operation_overrides:
+      evidence_updates:
+        - id: POLICY-LIABILITY
+          revoked: true
   - id: missing_evidence
     missing_source: POLICY-LIABILITY
   - id: coherent
@@ -76,7 +92,15 @@ scenarios:
 evaluation:
   table_mismatch: {TOTAL: FINDING, REGISTRY: FINDING, RELATED: FINDING, LIABILITY: COMPLIANT}
   distant_exception: {TOTAL: FINDING, REGISTRY: FINDING, RELATED: FINDING, LIABILITY: FINDING}
+  cross_block_liability: {TOTAL: FINDING, REGISTRY: FINDING, RELATED: FINDING, LIABILITY: FINDING}
   related_reference: {TOTAL: FINDING, REGISTRY: FINDING, RELATED: INSUFFICIENT_EVIDENCE, LIABILITY: COMPLIANT}
-  revoked_evidence: {TOTAL: FINDING, REGISTRY: FINDING, RELATED: FINDING, LIABILITY: FINDING}
+  revoked_evidence: {TOTAL: FINDING, REGISTRY: FINDING, RELATED: FINDING, LIABILITY: INSUFFICIENT_EVIDENCE}
   missing_evidence: {TOTAL: FINDING, REGISTRY: FINDING, RELATED: FINDING, LIABILITY: INSUFFICIENT_EVIDENCE}
   coherent: {TOTAL: COMPLIANT, REGISTRY: COMPLIANT, RELATED: COMPLIANT, LIABILITY: COMPLIANT}
+
+# Acceptance requirements are an evaluation oracle, never workflow/model input.
+evaluation_requirements:
+  cross_block_liability:
+    rule_id: LIABILITY
+    dependencies: ["Cláusula 4", "Cláusula 9"]
+    local_status: INSUFFICIENT_EVIDENCE
