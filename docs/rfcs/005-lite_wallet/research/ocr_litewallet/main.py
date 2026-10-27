@@ -71,7 +71,7 @@ def main():
     llm = ChatGoogleGenerativeAI(
         model="gemini-3.1-flash-lite",
         temperature=0,
-        api_key=settings.GOOGLE_API_KEY,
+        api_key=GOOGLE_API_KEY,
     )
 
     structured_llm = llm.with_structured_output(CupomFiscal)
