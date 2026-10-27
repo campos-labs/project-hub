@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "purpose": "Synthetic durable-execution acceptance cases; no LLM or OOXML benchmark",
+  "images": {
+    "python": "python@sha256:12316debbfb86890f6b2d825820612741ba527ad5a44e3902759141d572bfe8f",
+    "postgres": "postgres@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336",
+    "redis": "redis@sha256:bd28fff4b665fdf1b73e8b5b73ec05d2f858f4fa3c8ea0d7c9bc09f7f6bf7039"
+  },
+  "dependencies": [
+    "langgraph==1.2.16",
+    "langgraph-checkpoint-postgres==3.2.0",
+    "procrastinate==3.10.0",
+    "psycopg[binary,pool]==3.3.6",
+    "psycopg-pool==3.3.3",
+    "taskiq==0.13.0",
+    "taskiq-redis==1.2.4",
+    "redis==8.1.0"
+  ],
+  "settings": {
+    "docker_subnet": "10.254.241.0/28",
+    "heartbeat_seconds": 0.25,
+    "stale_seconds": 1.5,
+    "retry_limit": 2,
+    "retry_delay_seconds": 1,
+    "baseline_observation_seconds": 3,
+    "case_timeout_seconds": 20,
+    "simulated_model_seconds": 0.5,
+    "redis_appendfsync": "always",
+    "worker_concurrency": 1,
+    "checkpoint_durability": "sync"
+  },
+  "document": "Synthetic contract, immutable revision one.",
+  "proposal": {"id": "total-1", "unit_id": "p0021", "before": "R$ 12.000,00", "after": "R$ 11.000,00"},
+  "cases": [
+    "accepted_without_worker", "before_checkpoint", "after_checkpoint",
+    "file_published", "effect_committed", "before_ack",
+    "human_releases_worker", "transaction_rollback", "commit_before_dispatch",
+    "outbox_publish_gap", "concurrent_resume", "invalid_approvals",
+    "transient_retry", "retry_exhausted", "permanent_failure", "business_locks",
+    "stale_queued_resume", "stale_effect_checkpoint", "tampered_resume", "artifact_missing", "artifact_conflict",
+    "crash_retry_exhausted", "stale_caller_approval", "concurrent_deliveries"
+  ],
+  "acceptance": {
+    "recovery": "Restart the only worker; no new business message may trigger recovery",
+    "effect": "One immutable file with expected bytes/hash and one reconciled logical effect",
+    "approval": "Document and complete proposal hashes must match the persisted approval",
+    "transaction": "Decision and PG queue job share a transaction, or decision and outbox share it",
+    "locks": "No business transaction/relation lock during model wait or human interruption",
+    "retry": "At most three executions; permanent/exhausted failure is explicit"
+  }
+}
