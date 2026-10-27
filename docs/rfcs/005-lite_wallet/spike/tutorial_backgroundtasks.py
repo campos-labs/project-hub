@@ -66,7 +66,7 @@ def slow_task(job_id: str, duration: int) -> None:
     print(f"[{job_id}] tarefa concluída")
 
 
-@app.post("/slow-task")
+@app.post("/slow-task", status_code=202)
 def run_slow_task(job_id: str, duration: int, background_tasks: BackgroundTasks):
     """
     Chame este endpoint e observe: a resposta HTTP volta na hora,
@@ -88,7 +88,7 @@ def step_two(job_id: str) -> None:
     print(f"[{job_id}] passo 2")
 
 
-@app.post("/multi-step")
+@app.post("/multi-step", status_code=202)
 def run_multi_step(job_id: str, background_tasks: BackgroundTasks):
     background_tasks.add_task(step_one, job_id)
     background_tasks.add_task(step_two, job_id)
@@ -103,7 +103,7 @@ def task_that_fails(job_id: str) -> None:
     raise ValueError(f"[{job_id}] algo deu errado")
 
 
-@app.post("/failing-task")
+@app.post("/failing-task", status_code=202)
 def run_failing_task(job_id: str, background_tasks: BackgroundTasks):
     """
     Dispare este endpoint e observe o terminal: a exceção aparece
