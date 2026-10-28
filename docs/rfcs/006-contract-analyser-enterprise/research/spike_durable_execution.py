@@ -1,8 +1,8 @@
 """#104: real PostgreSQL/Redis queues, SIGKILL workers and synthetic graph/effect.
 
 Python 3.12 + Docker: python spike_durable_execution.py run
-Only the isolated experiment uses the dependencies/images pinned in data/.
-Reports, worker logs and synthetic packages remain in .spike/<run>/ (untracked).
+Only the isolated experiment uses the dependencies/images pinned below.
+Reports, logs and synthetic packages go to the system temp directory (campos-spike104/<run>).
 Agent Server is documentary triage; this does not benchmark LLMs or DOCX quality.
 """
 from __future__ import annotations
@@ -26,8 +26,70 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, TypedDict
 
 SCRIPT = Path(__file__).resolve()
-CONFIG = json.loads((SCRIPT.parent / 'data/durable_execution.json').read_text())
+CONFIG = {
+  "schema_version": 1,
+  "purpose": "Synthetic durable-execution acceptance cases; no LLM or OOXML benchmark",
+  "images": {
+    "python": "python@sha256:12316debbfb86890f6b2d825820612741ba527ad5a44e3902759141d572bfe8f",
+    "postgres": "postgres@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336",
+    "redis": "redis@sha256:bd28fff4b665fdf1b73e8b5b73ec05d2f858f4fa3c8ea0d7c9bc09f7f6bf7039"
+  },
+  "dependencies": [
+    "langgraph==1.2.16",
+    "langgraph-checkpoint-postgres==3.2.0",
+    "procrastinate==3.10.0",
+    "psycopg[binary,pool]==3.3.6",
+    "psycopg-pool==3.3.3",
+    "taskiq==0.13.0",
+    "taskiq-redis==1.2.4",
+    "redis==8.1.0"
+  ],
+  "settings": {
+    "docker_subnet": "10.254.241.0/28",
+    "heartbeat_seconds": 0.25,
+    "stale_seconds": 1.5,
+    "retry_limit": 2,
+    "retry_delay_seconds": 1,
+    "baseline_observation_seconds": 3,
+    "case_timeout_seconds": 20,
+    "simulated_model_seconds": 0.5,
+    "redis_appendfsync": "always",
+    "worker_concurrency": 1,
+    "checkpoint_durability": "sync"
+  },
+  "document": "Synthetic contract, immutable revision one.",
+  "proposal": {"id": "total-1", "unit_id": "p0021", "before": "R$ 12.000,00", "after": "R$ 11.000,00"},
+  "cases": [
+    "accepted_without_worker", "before_checkpoint", "after_checkpoint",
+    "file_published", "effect_committed", "before_ack",
+    "human_releases_worker", "transaction_rollback", "commit_before_dispatch",
+    "outbox_publish_gap", "concurrent_resume", "invalid_approvals",
+    "transient_retry", "retry_exhausted", "permanent_failure", "business_locks",
+    "stale_queued_resume", "stale_effect_checkpoint", "tampered_resume", "artifact_missing", "artifact_conflict",
+    "crash_retry_exhausted", "stale_caller_approval", "concurrent_deliveries"
+  ],
+  "acceptance": {
+    "recovery": "Restart the only worker; no new business message may trigger recovery",
+    "effect": "One immutable file with expected bytes/hash and one reconciled logical effect",
+    "approval": "Document and complete proposal hashes must match the persisted approval",
+    "transaction": "Decision and PG queue job share a transaction, or decision and outbox share it",
+    "locks": "No business transaction/relation lock during model wait or human interruption",
+    "retry": "At most three executions; permanent/exhausted failure is explicit"
+  }
+}
 SETTINGS = CONFIG['settings']
+
+
+def validate_recipe(settings):
+    # These are acceptance conditions, not general-purpose tuning options.
+    fixed = dict(retry_limit=2, retry_delay_seconds=1, redis_appendfsync='always',
+                 worker_concurrency=1, checkpoint_durability='sync')
+    for name, expected in fixed.items():
+        if type(settings.get(name)) is not type(expected) or settings[name] != expected:
+            raise ValueError(f'{name} is a fixed spike condition: {expected!r}')
+
+
+validate_recipe(SETTINGS)
 ROOT = Path(os.environ.get('SPIKE_OUTPUT', '/artifacts'))
 DSN = os.environ.get('SPIKE_PG', '')
 REDIS = os.environ.get('SPIKE_REDIS', '')
@@ -55,7 +117,7 @@ class TransientFailure(Exception):
 
 class PgQueue:
 
-    def __init__(self, dsn, queue, execute, retries=2, heartbeat=0.25, stale_after=1.5,on_exhausted=None):
+    def __init__(self, dsn, queue, execute, retries=SETTINGS['retry_limit'], heartbeat=SETTINGS['heartbeat_seconds'], stale_after=SETTINGS['stale_seconds'],on_exhausted=None):
         if retries < 0 or not 0 < heartbeat < stale_after:
             raise ValueError('Invalid retry/heartbeat settings')
         self.dsn, self.queue = (dsn, queue)
@@ -63,7 +125,7 @@ class PgQueue:
         self.on_exhausted=on_exhausted
         self.app = procrastinate.App(connector=procrastinate.PsycopgConnector(conninfo=dsn, min_size=1, max_size=5, kwargs={'application_name': 'spike104-pg-queue'}))
 
-        @self.app.task(name='spike104.execute', queue=queue, pass_context=True, retry=procrastinate.RetryStrategy(max_attempts=retries, wait=1, retry_exceptions={TransientFailure}) if retries else False)
+        @self.app.task(name='spike104.execute', queue=queue, pass_context=True, retry=procrastinate.RetryStrategy(max_attempts=retries, wait=SETTINGS['retry_delay_seconds'], retry_exceptions={TransientFailure}) if retries else False)
         async def task(context, payload):
             await execute(payload, context.job.id, context.job.attempts + 1)
         self.task = task
@@ -102,7 +164,7 @@ class PgQueue:
     async def worker(self, recover=True):
         async with self.app.open_async():
             reaper = asyncio.create_task(self.recover_forever()) if recover else None
-            worker = asyncio.create_task(self.app.run_worker_async(queues=[self.queue], concurrency=1, fetch_job_polling_interval=self.heartbeat, update_heartbeat_interval=self.heartbeat, stalled_worker_timeout=self.stale_after, install_signal_handlers=False, delete_jobs='never'))
+            worker = asyncio.create_task(self.app.run_worker_async(queues=[self.queue], concurrency=SETTINGS['worker_concurrency'], fetch_job_polling_interval=self.heartbeat, update_heartbeat_interval=self.heartbeat, stalled_worker_timeout=self.stale_after, install_signal_handlers=False, delete_jobs='never'))
             try:
                 watched = [worker] + ([reaper] if reaper else [])
                 done, _ = await asyncio.wait(watched, return_when=asyncio.FIRST_COMPLETED)
@@ -148,7 +210,7 @@ class TaskiqRuntime:
 
     async def serve(self, stop: asyncio.Event):
         self.broker.is_worker_process = True
-        receiver = Receiver(self.broker, max_async_tasks=1, max_prefetch=0, ack_type=AcknowledgeType.MANUAL, wait_tasks_timeout=2)
+        receiver = Receiver(self.broker, max_async_tasks=SETTINGS['worker_concurrency'], max_prefetch=0, ack_type=AcknowledgeType.MANUAL, wait_tasks_timeout=2)
         try:
             await receiver.listen(stop)
         finally:
@@ -403,7 +465,7 @@ async def execute(job_id):
                     data={'review_id':job['review_id']} if not snapshot.values else None
                     if job['kind']=='resume' and not snapshot.values.get('approved'):
                         data=Command(resume=job['decision'])
-                    result=await graph.ainvoke(data,config,durability='sync')
+                    result=await graph.ainvoke(data,config,durability=SETTINGS['checkpoint_durability'])
                     state='APPROVAL_REQUIRED' if result.get('__interrupt__') else 'READY'
                     await sql('UPDATE spike.reviews SET state=%s WHERE id=%s',(state,job['review_id']))
             await sql("UPDATE spike.jobs SET state='DONE',error=NULL WHERE id=%s",(job_id,))
@@ -444,7 +506,7 @@ async def worker(args):
             await sql("UPDATE spike.jobs SET state='FAILED_FINAL',error='Crash retry ceiling' WHERE id=%s AND state NOT IN ('DONE','FAILED_FINAL')",(jid,))
             row=await sql('SELECT state FROM spike.jobs WHERE id=%s',(jid,),one=True)
             return Status.SUCCEEDED if row['state']=='DONE' else Status.FAILED
-        adapter=PgQueue(DSN,args.queue,handler,heartbeat=SETTINGS['heartbeat_seconds'],stale_after=SETTINGS['stale_seconds'],on_exhausted=exhausted)
+        adapter=PgQueue(DSN,args.queue,handler,retries=SETTINGS['retry_limit'],heartbeat=SETTINGS['heartbeat_seconds'],stale_after=SETTINGS['stale_seconds'],on_exhausted=exhausted)
         await event(args.queue,'worker_ready',pid=os.getpid(),recover=args.recover)
         await adapter.worker(recover=args.recover)
     else:
@@ -820,13 +882,12 @@ def docker(*args,**kwargs):
 
 def bootstrap(args):
     run_id='s104-'+uuid.uuid4().hex[:8]
-    output=SCRIPT.parent/'.spike'/run_id;output.mkdir(parents=True)
+    output=Path(tempfile.gettempdir())/'campos-spike104'/run_id;output.mkdir(parents=True)
     shutil.copyfile(SCRIPT,output/'source.py')
-    shutil.copyfile(SCRIPT.parent/'data/durable_execution.json',output/'config.json')
+    (output/'config.json').write_text(json.dumps(CONFIG,indent=2),encoding='utf-8')
     image='campos-spike104:'+hashlib.sha256(SCRIPT.read_bytes()+canonical(CONFIG)).hexdigest()[:12]
     with tempfile.TemporaryDirectory(prefix='build-',dir=output) as context:
         context=Path(context);shutil.copyfile(SCRIPT,context/SCRIPT.name)
-        (context/'data').mkdir();shutil.copyfile(SCRIPT.parent/'data/durable_execution.json',context/'data/durable_execution.json')
         dockerfile=f"FROM {CONFIG['images']['python']}\nENV PYTHONUNBUFFERED=1\nRUN pip install --no-cache-dir "+' '.join(CONFIG['dependencies'])+f"\nWORKDIR /app\nCOPY . /app\nENTRYPOINT [\"python\",\"/app/{SCRIPT.name}\"]\n"
         docker('build','-t',image,'-f','-',str(context),input=dockerfile)
     names=dict(network=run_id,pg=run_id+'-pg',redis=run_id+'-redis',runner=run_id+'-runner')
@@ -839,7 +900,7 @@ def bootstrap(args):
                CONFIG['images']['postgres'],stdout=subprocess.DEVNULL)
         docker('run','-d','--name',names['redis'],'--network',run_id,'--network-alias','redis',
                '-v',run_id+'-redis:/data',
-               CONFIG['images']['redis'],'redis-server','--appendonly','yes','--appendfsync','always',stdout=subprocess.DEVNULL)
+               CONFIG['images']['redis'],'redis-server','--appendonly','yes','--appendfsync',SETTINGS['redis_appendfsync'],stdout=subprocess.DEVNULL)
         for _ in range(60):
             ready=subprocess.run(['docker','exec',names['pg'],'pg_isready','-U','postgres','-d','spike'],capture_output=True).returncode==0
             if ready:

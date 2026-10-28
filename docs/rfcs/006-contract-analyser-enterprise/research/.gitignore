@@ -1,8 +1,0 @@
-.poc/
-.spike/
-__pycache__/
-*.sqlite
-*.sqlite-*
-*.log
-.venv/
-.env
