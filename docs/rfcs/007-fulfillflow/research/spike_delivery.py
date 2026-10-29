@@ -3,9 +3,11 @@
 Python 3.12 + PyYAML 6.0.2 (the infra validation environment suffices).
 prepare --infra-repo PATH --tools PATH --output NEW_EXTERNAL_DIRECTORY
 bootstrap --output DIRECTORY
+resume --output DIRECTORY
+install-flux --output DIRECTORY
 All generated manifests, credentials and observations stay outside this repository.
-The pinned infra bootstrap is reused without source edits. Comparison runners and
-functional verification remain pending; this increment prepares the environment only.
+The pinned infra bootstrap is reused without source edits. Run the comparison
+with spike_delivery_cases.py after resume and install-flux.
 The disk guard checks the output drive, not free space inside Docker's virtual disk.
 """
 
@@ -20,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.request
 import zipfile
 from pathlib import Path
 from unittest.mock import patch
@@ -27,6 +30,8 @@ from unittest.mock import patch
 INFRA = "c9dcaf745f126df8fe7902cb449391f63e9de3f8"
 CLUSTER = "fulfillflow-spike-102"
 MIN_FREE = 8 * 1024**3
+FLUX = "2.6.4"  # Compatible representative for the pinned Kubernetes 1.34 lab.
+FLUX_SHA = "991ecb38ac9013b02170a0c2fae116150510da80c426863ce6e3b63e3f8b55b1"
 
 
 def command(args, **kwargs):
@@ -157,6 +162,26 @@ def bootstrap(args):
 
 
 class GuardTests(unittest.TestCase):
+    def test_failed_flux_prerequisite_prevents_install(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            archive = out / ("flux-" + FLUX + ".zip")
+            with zipfile.ZipFile(archive, "w") as bundle:
+                bundle.writestr("flux.exe", b"test executable")
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            with (
+                patch(__name__ + ".FLUX_SHA", digest),
+                patch(__name__ + ".verify_namespace"),
+                patch(
+                    __name__ + ".command",
+                    side_effect=subprocess.CalledProcessError(1, "check"),
+                ) as invoked,
+            ):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    install_flux(argparse.Namespace(output=out))
+                self.assertEqual(invoked.call_count, 1)
+                self.assertEqual(invoked.call_args.args[0][1:3], ["check", "--pre"])
+
     def test_low_space_blocks_before_creation(self):
         with patch.object(
             shutil, "disk_usage", return_value=shutil._ntuple_diskusage(100, 100, 0)
@@ -206,6 +231,82 @@ def selftest(args):
         raise SystemExit(1)
 
 
+def kube_args(out):
+    inputs = json.loads((out / "inputs.json").read_text())
+    return [
+        Path(inputs["tools"]) / "kubectl/kubectl.exe",
+        "--kubeconfig",
+        out / "private/kubeconfig",
+        "--context",
+        "kind-" + CLUSTER,
+        "--request-timeout=20s",
+    ]
+
+
+def verify_namespace(out):
+    identity = json.loads((out / "private/identity.json").read_text())
+    namespace = json.loads(
+        command(kube_args(out) + ["get", "namespace", "fulfillflow", "-o", "json"])
+    )
+    if namespace["metadata"]["uid"] != identity["namespace_uid"]:
+        raise ValueError("Namespace identity changed")
+
+
+def resume(args):
+    out = args.output.resolve()
+    identity = json.loads((out / "private/identity.json").read_text())
+    node = CLUSTER + "-control-plane"
+    actual = json.loads(command(["docker", "inspect", node]))[0]
+    if actual["Id"] != identity["container_id"]:
+        raise ValueError("Container identity changed")
+    command(["docker", "start", node])
+    command(
+        kube_args(out)
+        + ["wait", "--for=condition=Ready", "node", node, "--timeout=120s"]
+    )
+    verify_namespace(out)
+
+
+def install_flux(args):
+    out = args.output.resolve()
+    verify_namespace(out)
+    archive = out / ("flux-" + FLUX + ".zip")
+    if not archive.exists():
+        urllib.request.urlretrieve(
+            f"https://github.com/fluxcd/flux2/releases/download/v{FLUX}/flux_{FLUX}_windows_amd64.zip",
+            archive,
+        )
+    if hashlib.sha256(archive.read_bytes()).hexdigest() != FLUX_SHA:
+        raise ValueError("Flux archive checksum mismatch")
+    destination = out / ("flux-" + FLUX)
+    with zipfile.ZipFile(archive) as bundle:
+        binary = bundle.read("flux.exe")
+    destination.mkdir(exist_ok=True)
+    executable = destination / "flux.exe"
+    if executable.exists() and executable.read_bytes() != binary:
+        raise ValueError("Flux executable changed")
+    if not executable.exists():
+        executable.write_bytes(binary)
+    target = [
+        "--kubeconfig",
+        out / "private/kubeconfig",
+        "--context",
+        "kind-" + CLUSTER,
+    ]
+    # Never install after a failed prerequisite check.
+    command([executable, "check", "--pre", *target])
+    installed = command(
+        [
+            executable,
+            "install",
+            "--components=source-controller,kustomize-controller",
+            "--timeout=3m",
+            *target,
+        ]
+    )
+    (out / "flux-install.log").write_text(installed, encoding="utf-8")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="action", required=True)
@@ -216,10 +317,16 @@ def main():
     boot = sub.add_parser("bootstrap")
     boot.add_argument("--output", type=Path, required=True)
     sub.add_parser("selftest")
+    for name in ("resume", "install-flux"):
+        sub.add_parser(name).add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    {"prepare": prepare, "bootstrap": bootstrap, "selftest": selftest}[args.action](
-        args
-    )
+    {
+        "prepare": prepare,
+        "bootstrap": bootstrap,
+        "selftest": selftest,
+        "resume": resume,
+        "install-flux": install_flux,
+    }[args.action](args)
 
 
 if __name__ == "__main__":
