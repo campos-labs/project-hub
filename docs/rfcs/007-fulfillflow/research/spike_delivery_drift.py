@@ -17,7 +17,14 @@ import time
 from pathlib import Path
 
 from spike_delivery import kube_args, verify_namespace
-from spike_delivery_cases import run, save
+from spike_delivery_cases import run, save, set_suspended
+
+
+def drift_expectation(samples, injected, expected, mode):
+    introduced = any(s["revision"] == injected for s in samples)
+    if mode == "direct":
+        return introduced and all(s["revision"] == injected for s in samples)
+    return introduced and samples[-1]["revision"] == expected
 
 
 def record_result(evidence, rows, row):
@@ -61,16 +68,7 @@ def main(args):
         return json.loads(kube("-n", ns, "get", kind, name, "-o", "json"))
 
     def suspend(value):
-        kube(
-            "-n",
-            "flux-system",
-            "patch",
-            "kustomization",
-            "spike",
-            "--type=merge",
-            "-p",
-            json.dumps({"spec": {"suspend": value}}),
-        )
+        set_suspended(kube, value)
 
     def annotation(obj):
         return obj["spec"]["template"]["metadata"]["annotations"]["spike/revision"]
@@ -236,9 +234,7 @@ def main(args):
                 "last_revision": annotation(after),
                 "git_unchanged": True,
                 "functional": functional(mode + "-after"),
-                "expectation_met": (corrected is None and annotation(after) == injected)
-                if mode == "direct"
-                else annotation(after) == expected,
+                "expectation_met": drift_expectation(samples, injected, expected, mode),
             }
             record_result(evidence, rows, row)
             # Restore the direct control only after its full observation and verifier.

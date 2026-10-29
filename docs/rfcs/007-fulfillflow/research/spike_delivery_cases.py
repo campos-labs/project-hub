@@ -43,6 +43,47 @@ def save(path, value):
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
 
 
+def set_suspended(kube, value):
+    """Exclusive lab controller: stop ongoing writers before direct mutations."""
+    kube(
+        "-n",
+        "flux-system",
+        "patch",
+        "kustomization",
+        "spike",
+        "--type=merge",
+        "-p",
+        json.dumps({"spec": {"suspend": value}}),
+    )
+    kube(
+        "-n",
+        "flux-system",
+        "scale",
+        "deployment/kustomize-controller",
+        "--replicas=" + ("0" if value else "1"),
+    )
+    if value:
+        kube(
+            "-n",
+            "flux-system",
+            "wait",
+            "--for=delete",
+            "pod",
+            "-l",
+            "app=kustomize-controller",
+            "--timeout=120s",
+        )
+    else:
+        kube(
+            "-n",
+            "flux-system",
+            "rollout",
+            "status",
+            "deployment/kustomize-controller",
+            "--timeout=120s",
+        )
+
+
 class Experiment:
     def __init__(self, root, mode, attempt):
         self.root, self.mode = root, mode
@@ -82,16 +123,7 @@ class Experiment:
         self.rows = []
 
     def suspend(self, value):
-        self.kube(
-            "-n",
-            "flux-system",
-            "patch",
-            "kustomization",
-            "spike",
-            "--type=merge",
-            "-p",
-            json.dumps({"spec": {"suspend": value}}),
-        )
+        set_suspended(self.kube, value)
 
     def deliver(self, name, bad=False):
         name = self.mode + "-" + self.attempt + "-" + name
@@ -511,6 +543,7 @@ class Experiment:
                         },
                     }
                 )
+                self.suspend(False)
                 self.reconcile(sha)
             else:
                 self.apply(manifest)

@@ -1,4 +1,5 @@
-"""Issue #102: isolated delivery research; never use a historical kubeconfig.
+"""Issue #102: isolated delivery research; reuse only this lab run kubeconfig.
+Application historical kubeconfigs are excluded; resuming the same lab is intentional.
 
 Python 3.12 + PyYAML 6.0.2 (the infra validation environment suffices).
 prepare --infra-repo PATH --tools PATH --output NEW_EXTERNAL_DIRECTORY
@@ -162,6 +163,40 @@ def bootstrap(args):
 
 
 class GuardTests(unittest.TestCase):
+    def test_drift_requires_observed_injection(self):
+        from spike_delivery_drift import drift_expectation
+
+        for values, mode, expected in (
+            (["git"], "flux", False),
+            (["drift", "git"], "flux", True),
+            (["drift"], "flux", False),
+            (["drift", "drift"], "direct", True),
+            (["drift", "git"], "direct", False),
+        ):
+            with self.subTest(values=values, mode=mode):
+                self.assertEqual(
+                    drift_expectation(
+                        [{"revision": x} for x in values], "drift", "git", mode
+                    ),
+                    expected,
+                )
+
+    def test_suspension_waits_and_propagates_failure(self):
+        from spike_delivery_cases import set_suspended
+        from unittest.mock import Mock
+
+        for suspended in (True, False):
+            kube = Mock()
+            set_suspended(kube, suspended)
+            calls = [c.args for c in kube.call_args_list]
+            self.assertEqual(calls[0][2], "patch")
+            self.assertEqual(calls[1][2], "scale")
+            self.assertEqual(calls[2][2], "wait" if suspended else "rollout")
+            self.assertIn("--replicas=0" if suspended else "--replicas=1", calls[1])
+        kube = Mock(side_effect=["", "", TimeoutError("still running")])
+        with self.assertRaises(TimeoutError):
+            set_suspended(kube, True)
+
     def test_drift_exit_status_preserves_result(self):
         for expectation, exit_code in ((True, 0), (False, 1)):
             with (
