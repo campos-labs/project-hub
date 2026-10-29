@@ -162,6 +162,35 @@ def bootstrap(args):
 
 
 class GuardTests(unittest.TestCase):
+    def test_drift_exit_status_preserves_result(self):
+        for expectation, exit_code in ((True, 0), (False, 1)):
+            with (
+                self.subTest(expectation=expectation),
+                tempfile.TemporaryDirectory() as folder,
+            ):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "-B",
+                        "-c",
+                        "import json,sys; from pathlib import Path; "
+                        "from spike_delivery_drift import record_result; "
+                        "record_result(Path(sys.argv[1]), [{'previous': True}], "
+                        "{'expectation_met': json.loads(sys.argv[2])})",
+                        folder,
+                        json.dumps(expectation),
+                    ],
+                    cwd=Path(__file__).resolve().parent,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                self.assertEqual(result.returncode, exit_code, result.stderr)
+                self.assertEqual(
+                    json.loads((Path(folder) / "results.json").read_text()),
+                    [{"previous": True}, {"expectation_met": expectation}],
+                )
+
     def test_failed_flux_prerequisite_prevents_install(self):
         with tempfile.TemporaryDirectory() as folder:
             out = Path(folder)

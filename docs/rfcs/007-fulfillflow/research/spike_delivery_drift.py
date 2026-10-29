@@ -20,6 +20,13 @@ from spike_delivery import kube_args, verify_namespace
 from spike_delivery_cases import run, save
 
 
+def record_result(evidence, rows, row):
+    rows.append(row)
+    save(evidence / "results.json", rows)
+    if row["expectation_met"] is not True:
+        raise SystemExit(1)
+
+
 def main(args):
     root, evidence = args.output.resolve(), args.evidence.resolve()
     verify_namespace(root)
@@ -233,8 +240,7 @@ def main(args):
                 if mode == "direct"
                 else annotation(after) == expected,
             }
-            rows.append(row)
-            save(evidence / "results.json", rows)
+            record_result(evidence, rows, row)
             # Restore the direct control only after its full observation and verifier.
             if mode == "direct":
                 kube("apply", "-f", str(manifest))
