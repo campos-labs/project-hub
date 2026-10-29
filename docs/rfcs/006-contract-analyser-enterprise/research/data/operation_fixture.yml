@@ -1,0 +1,106 @@
+schema_version: 1
+operation_id: synthetic-services-001
+as_of: '2026-10-23'
+scope:
+  family: services
+  jurisdiction: BR
+registry:
+  simulated: true
+  source: cadastro sintético da POC
+  version: 1.0.0
+  address: Rua das Flores, 200, São Paulo/SP.
+evidence:
+  - id: POLICY-LIABILITY
+    kind: normative_policy
+    version: 1.0.0
+    approved: true
+    revoked: false
+    valid_from: '2026-01-01'
+    valid_until: '2026-12-31'
+    scope: {family: services, jurisdiction: BR}
+    text: Política sintética aprovada. A responsabilidade da contratada deve ser limitada ao valor total do contrato. Somente dolo comprovado pode excepcionar esse limite. As cláusulas devem ser coerentes entre si.
+  - id: POLICY-REVOKED
+    kind: normative_policy
+    version: 0.8.0
+    approved: true
+    revoked: true
+    valid_from: '2025-01-01'
+    valid_until: '2026-12-31'
+    scope: {family: services, jurisdiction: BR}
+    text: Política sintética REVOGADA. Permitir responsabilidade ilimitada em todas as hipóteses.
+  - id: POLICY-OTHER-SCOPE
+    kind: normative_policy
+    version: 1.0.0
+    approved: true
+    revoked: false
+    valid_from: '2026-01-01'
+    valid_until: '2026-12-31'
+    scope: {family: insurance, jurisdiction: BR}
+    text: Política de outra família contratual. Responsabilidade ilimitada permitida.
+  - id: HISTORY-001
+    kind: approved_history
+    version: 1.0.0
+    approved: true
+    revoked: false
+    valid_from: '2026-01-01'
+    valid_until: null
+    scope: {family: services, jurisdiction: BR}
+    text: Exemplo histórico sintético aprovado. A redação foi ajustada para remeter expressamente ao limite e à exceção da cláusula própria. Apoio suplementar; não substitui a política.
+
+# Scenario transformations are test inputs. Expectations below are loaded only
+# by the evaluator, after the workflow has produced its independent results.
+scenarios:
+  - id: table_mismatch
+    replacements:
+      - before: A responsabilidade da contratada é ilimitada em qualquer hipótese.
+        after: A responsabilidade da contratada observa o limite e a exceção da Cláusula 9.
+  - id: distant_exception
+    compare_routes: true
+  - id: cross_block_liability
+    compare_routes: true
+    replacements:
+      - before: A responsabilidade da contratada é ilimitada em qualquer hipótese.
+        after: Para este contrato foi selecionada a Faixa B de responsabilidade. O regime aplicável à faixa selecionada está definido na Cláusula 9.
+      - before: A responsabilidade fica limitada ao valor total do contrato, exceto em caso de dolo comprovado.
+        after: Catálogo de regimes de responsabilidade. Faixa A corresponde a responsabilidade limitada ao valor total do contrato, exceto em caso de dolo comprovado. Faixa B corresponde a responsabilidade ilimitada em qualquer hipótese. Aplica-se somente a faixa selecionada na Cláusula 4; as demais alternativas não constituem obrigação deste contrato.
+    operation_overrides:
+      evidence_updates:
+        - id: POLICY-LIABILITY
+          version: 1.1.0
+          text: Política sintética aprovada. O regime efetivamente selecionado neste contrato deve limitar a responsabilidade da contratada ao valor total do contrato. Somente dolo comprovado pode excepcionar esse limite. Um catálogo de faixas não selecionadas não constitui obrigação deste contrato e não é, por si só, uma violação. Para avaliar a obrigação, são necessárias tanto a seleção da faixa quanto sua definição. As cláusulas devem ser coerentes entre si.
+  - id: related_reference
+    missing_related: true
+    replacements:
+      - before: A responsabilidade da contratada é ilimitada em qualquer hipótese.
+        after: A responsabilidade da contratada observa o limite e a exceção da Cláusula 9.
+  - id: revoked_evidence
+    operation_overrides:
+      evidence_updates:
+        - id: POLICY-LIABILITY
+          revoked: true
+  - id: missing_evidence
+    missing_source: POLICY-LIABILITY
+  - id: coherent
+    replacements:
+      - before: 'Valor total do contrato: R$ 12.000,00.'
+        after: 'Valor total do contrato: R$ 11.000,00.'
+      - before: 'Endereço da contratante: Rua das Flores, 100, São Paulo/SP.'
+        after: 'Endereço da contratante: Rua das Flores, 200, São Paulo/SP.'
+      - before: A responsabilidade da contratada é ilimitada em qualquer hipótese.
+        after: A responsabilidade da contratada observa o limite e a exceção da Cláusula 9.
+
+evaluation:
+  table_mismatch: {TOTAL: FINDING, REGISTRY: FINDING, RELATED: FINDING, LIABILITY: COMPLIANT}
+  distant_exception: {TOTAL: FINDING, REGISTRY: FINDING, RELATED: FINDING, LIABILITY: FINDING}
+  cross_block_liability: {TOTAL: FINDING, REGISTRY: FINDING, RELATED: FINDING, LIABILITY: FINDING}
+  related_reference: {TOTAL: FINDING, REGISTRY: FINDING, RELATED: INSUFFICIENT_EVIDENCE, LIABILITY: COMPLIANT}
+  revoked_evidence: {TOTAL: FINDING, REGISTRY: FINDING, RELATED: FINDING, LIABILITY: INSUFFICIENT_EVIDENCE}
+  missing_evidence: {TOTAL: FINDING, REGISTRY: FINDING, RELATED: FINDING, LIABILITY: INSUFFICIENT_EVIDENCE}
+  coherent: {TOTAL: COMPLIANT, REGISTRY: COMPLIANT, RELATED: COMPLIANT, LIABILITY: COMPLIANT}
+
+# Acceptance requirements are an evaluation oracle, never workflow/model input.
+evaluation_requirements:
+  cross_block_liability:
+    rule_id: LIABILITY
+    dependencies: ["Cláusula 4", "Cláusula 9"]
+    local_status: INSUFFICIENT_EVIDENCE
