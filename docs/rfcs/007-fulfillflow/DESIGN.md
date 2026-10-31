@@ -44,20 +44,21 @@ stateDiagram-v2
     direction LR
     [*] --> OPEN: Criar
     OPEN --> IN_PROGRESS: Assumir
-    IN_PROGRESS --> IN_PROGRESS: Registrar providência
-    IN_PROGRESS --> IN_PROGRESS: Reatribuir por CLI
+    IN_PROGRESS --> IN_PROGRESS: Registrar providência ou reatribuir por CLI
     IN_PROGRESS --> CLOSED: Encerrar com justificativa
 ```
 
 `OPEN` não possui responsável; assumir atribui o operador autenticado. Em `IN_PROGRESS`, somente o responsável registra providências e encerra. A administração pode reatribuir para outro operador habilitado, com justificativa, controle de versão e histórico, inclusive quando o responsável perde acesso. `CLOSED` é somente leitura. Encerrar não exige entrega da remessa nem altera pedido ou remessa; mudanças logísticas não encerram ocorrências, que podem ser abertas e atendidas mesmo após um estado logístico terminal.
 
-Cada comando de ocorrência usa `operation_id`. O recibo é único por usuário e operação e valida tipo de comando, recurso e hash do conteúdo; na criação, o recurso de entrada é a remessa. Após confirmar o acesso atual, a aplicação recupera uma repetição idêntica **antes** de validar `expected_version` ou reaplicar regras de transição. Reutilização divergente retorna 409. Para uma operação nova, valida versão e regras sob lock da ocorrência e confirma alteração, incremento de versão, histórico e recibo na mesma transação. A reserva do recibo e suas constraints também protegem repetições concorrentes.
+Cada comando de ocorrência, inclusive a criação, exige `operation_id`. O recibo é único por usuário e operação e valida tipo de comando, recurso e hash do conteúdo; na criação, o recurso de entrada é a remessa. Após confirmar o acesso atual, a aplicação recupera uma repetição idêntica **antes** de validar `expected_version` ou reaplicar regras de transição. Reutilização divergente retorna 409. Uma criação nova não exige `expected_version`: confirma ocorrência, versão inicial, histórico e recibo juntos; sua repetição devolve o mesmo ID e resultado original, sem criar outro registro. Nos comandos de alteração, uma operação nova valida versão e regras sob lock da ocorrência e confirma alteração, incremento de versão, histórico e recibo na mesma transação. A reserva do recibo e suas constraints também protegem repetições concorrentes.
 
 Orders, Shipments e Carriers preservam suas regras de domínio. Remessas pertencem a pedidos confirmados; a conclusão do pedido depende da entrega de todas as remessas não canceladas e da existência de pelo menos uma delas. Cancelamentos, transições terminais e ordenação dos eventos continuam independentes do atendimento das ocorrências.
 
 ## 5. Eventos e notificações
 
-Core encaminha o webhook ao Tracking, preservando corpo e headers autenticados. Tracking valida HMAC-SHA256 antes de interpretar o conteúdo e consulta o cadastro no Core durante a admissão. Mesmo ID com bytes diferentes gera conflito; uma repetição idêntica reutiliza o trabalho e o resultado originais.
+Core encaminha o webhook ao Tracking, preservando corpo e headers autenticados. Tracking valida HMAC-SHA256 antes de interpretar ou persistir o conteúdo e consulta o cadastro no Core durante a admissão. Para uma mesma transportadora, mesmo ID com bytes diferentes gera conflito; uma repetição idêntica reutiliza o trabalho e o resultado originais.
+
+O webhook exige `Content-Type: application/json` e exatamente uma ocorrência de `X-FulfillFlow-Event-Id`, `X-FulfillFlow-Timestamp` e `X-FulfillFlow-Signature`. A assinatura usa o formato `sha256=<hex>` e HMAC-SHA256 sobre `timestamp + "." + event_id + "." + raw_body`, preservando os bytes originais, com segredo próprio por transportadora e comparação em tempo constante. O timestamp usa segundos Unix, com tolerância padrão de 300 segundos contra replay; o corpo tem limite padrão de 65.536 bytes. O ID externo é sensível a maiúsculas/minúsculas, aceita ASCII visível sem espaços laterais, tem até 128 caracteres e deve coincidir com o ID do payload. Simulador, verificador e Tracking utilizam esse mesmo contrato.
 
 ```mermaid
 flowchart LR
@@ -82,15 +83,20 @@ A página inicial apresenta ocorrências por estado, responsável e remessa. O d
 
 | Contrato | Rotas |
 | --- | --- |
-| Autenticação | `GET /auth/login`, `GET /auth/callback`, `POST /auth/logout` |
-| Ocorrências | `POST/GET /api/v1/occurrences`; `GET /api/v1/occurrences/{id}` e `/{id}/history` |
+| Autenticação | `GET /auth/login`, `GET /auth/callback`, `GET /auth/session`, `POST /auth/logout` |
+| Criação de ocorrência | `POST /api/v1/occurrences`, com `operation_id`, sem `expected_version`; repetição idêntica retorna o mesmo ID e resultado original. |
+| Consulta de ocorrências | `GET /api/v1/occurrences`, `GET /api/v1/occurrences/{id}` e `/{id}/history` |
 | Atendimento | `POST /api/v1/occurrences/{id}/assume`, `/{id}/notes` e `/{id}/close`, com `operation_id` e `expected_version` |
 | Operações existentes | Rotas de pedidos, remessas, timeline, inbox e notificações mantêm seus contratos de domínio e passam a exigir sessão operacional. |
 | Transportadoras | `POST /api/v1/carriers/{carrier_code}/events`, com HMAC independente da sessão de usuário. |
 
 As respostas usam JSON, paginação determinística, timestamps ISO 8601, `X-Request-ID` e erros `application/problem+json`. O prefixo `/api/v1` permanece; a exigência de autenticação é uma mudança de acesso da v2.0. Mutações autenticadas por cookie, inclusive APIs JSON, exigem CSRF. Login, callback, assets e health checks possuem tratamento próprio; rotas internas conservam credenciais segregadas, sem receber cookies dos usuários.
 
-O simulador emite webhooks com HMAC; preparação de dados e observação de resultados utilizam sessão operacional válida. Demonstração, testes e verificador de infraestrutura obtêm essa sessão por login OIDC real com usuários sintéticos habilitados. Sessões e tokens CSRF não são expostos em argumentos ou logs; não há desvio de autenticação nem uso externo do token interno dos serviços.
+Demonstração, testes e verificador utilizam um auxiliar de autenticação que percorre o login OIDC real pelo navegador, manualmente ou de forma automatizada para usuários sintéticos habilitados. Após o callback, as ferramentas reutilizam o cookie de sessão em um cookie jar protegido. A sessão é obtida novamente por login após expiração ou logout, sem renovação silenciosa pelo polling nem troca do fluxo por autenticação direta com senha na aplicação.
+
+`GET /auth/session` exige sessão válida e retorna `expires_at` e `csrf_token`, vinculado à sessão, sem expor seu identificador. A resposta usa `Cache-Control: no-store`, não prolonga a sessão e não permite leitura por CORS de outra origem. APIs JSON e chamadas HTMX enviam o token em `X-CSRF-Token`; formulários podem enviá-lo no campo `csrf_token`. Sessão ausente, expirada ou revogada retorna 401 nas APIs; permissão insuficiente ou CSRF inválido retorna 403. Reautenticação não repete automaticamente uma mutação de resultado incerto.
+
+O simulador envia o webhook apenas com HMAC, sem exigir sessão ou CSRF nessa chamada. Preparação de pedidos/remessas exige sessão de operador e CSRF; consultas de conclusão, inclusive ao endereço de `Location`, usam sessão com permissão de leitura, sem CSRF. Sessões e tokens ficam em memória ou armazenamento temporário restrito, fora do Git, sem exposição em argumentos ou logs. Não há desvio de autenticação nem uso externo do token interno dos serviços.
 
 ## 7. Execução e atualização
 
@@ -100,7 +106,16 @@ A preparação idempotente cria usuários e operações sintéticas. Alembic con
 
 Kubernetes utiliza aplicação explícita de manifests Kustomize versionados, imagens identificadas por digest e verificação funcional autenticada. A atualização interrompe novas admissões e escritores de forma controlada, aplica migrações, inicia a referência candidata e verifica o fluxo. Workers encerram com prazo limitado, preservando trabalho retomável. O procedimento admite manutenção e não depende de coexistência entre versões.
 
-Recuperar configuração, voltar uma imagem e reverter banco são procedimentos distintos. Uma imagem anterior só é retomada se compatível com o schema vigente; falha de implantação não aciona downgrade destrutivo automático. Campos controlados por escalonadores têm proprietário definido e não são sobrescritos pela aplicação dos manifests.
+Recuperar configuração, voltar uma imagem e reverter banco são procedimentos distintos. Uma imagem anterior só é retomada se compatível com o schema vigente; falha de implantação não aciona downgrade destrutivo automático.
+
+| Recursos e campos | Responsável | Regra de atualização |
+| --- | --- | --- |
+| Templates dos workloads, incluindo imagens, ambiente, recursos e probes; ConfigMaps e referências de Secrets | Manifests versionados | Alterações persistentes entram no overlay; intervenção temporária registra a configuração anterior e sua restauração. |
+| `spec.replicas` dos workloads sem autoescalonamento, incluindo `core-worker` no perfil fixo | Manifests versionados | A quantidade segue o perfil do ambiente; mudanças temporárias são restauradas ao final da intervenção. |
+| `core-worker.spec.replicas` no perfil escalonado, com mínimo de uma réplica | HPA gerenciado pelo KEDA | O overlay omite esse campo; aplicação de manifests e scripts de entrega não impõem contagem paralela. |
+| Política do ScaledObject e configuração do HPA correspondente | Política nos manifests; HPA gerado pelo KEDA | Limites e sinais são alterados no ScaledObject, sem edição direta do HPA gerado. Campos de status e recursos derivados pertencem aos controladores. |
+
+A passagem do perfil fixo para o escalonado transfere a propriedade de `spec.replicas`, incluindo o registro de aplicação anterior, sem reduzir inadvertidamente a contagem. Intervenções no alvo escalonado utilizam pausa pelo ScaledObject, com `autoscaling.keda.sh/paused-replicas` para fixar a quantidade desejada, e aguardam a pausa e a convergência antes de prosseguir. Ao terminar, removem a pausa, restauram a política versionada e conferem a retomada do escalonamento e o resultado funcional. Os demais workloads mantêm réplicas fixas.
 
 ## 8. Observabilidade e aceite
 
@@ -112,7 +127,8 @@ O aceite exige jornada autenticada completa, permissões no servidor, recusa de 
 
 - [Gestão de transportes — Microsoft Dynamics 365](https://learn.microsoft.com/en-us/dynamics365/supply-chain/transportation/transportation-management-overview): referência de domínio para pedidos, remessas e operações de transporte.
 - [OpenID Connect Core](https://openid.net/specs/openid-connect-core-1_0.html) e [integração OIDC no Keycloak](https://www.keycloak.org/securing-apps/oidc-layers): autenticação, identidade e integração com o provedor.
+- [OWASP — prevenção de CSRF](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html): vinculação e transmissão de tokens nas operações autenticadas por sessão.
 - [PostgreSQL — bloqueios explícitos](https://www.postgresql.org/docs/18/explicit-locking.html): concorrência e coordenação entre operações e revogação.
 - [Transactional Outbox](https://microservices.io/patterns/data/transactional-outbox.html) e [RabbitMQ — confirms e acknowledgements](https://www.rabbitmq.com/docs/confirms): persistência local, publicação e confirmação de transporte.
 - [HTMX — polling](https://htmx.org/docs/#polling): atualização parcial e observação limitada de processamento.
-- [Kubernetes — Kustomize](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/): configuração declarativa e composição dos manifests.
+- [Kubernetes Kustomize](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/), [HPA](https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/) e [KEDA — pausa escalonamento](https://keda.sh/docs/2.20/concepts/scaling-deployments/#pausing-autoscaling): aplicação de manifests, propriedade de réplicas e intervenção operacional.
