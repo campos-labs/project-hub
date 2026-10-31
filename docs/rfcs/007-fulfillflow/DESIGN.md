@@ -1,279 +1,134 @@
-# FulfillFlow 1.x
+# FulfillFlow 2.0
 
-## 1. Objetivo e referência
+## 1. Objetivo e escopo
 
-FulfillFlow acompanha pedidos, remessas e atualizações de entrega de transportadoras simuladas. A interface permite criar e consultar operações, observar o processamento de eventos e consultar notificações simuladas. O fluxo distingue a aceitação de um evento, a confirmação dos efeitos de negócio, a conclusão do Tracking e a simulação da notificação.
+FulfillFlow é uma central de operações logísticas para acompanhar pedidos, remessas e eventos de transportadoras e tratar ocorrências com responsável e histórico. O usuário consulta a operação, abre uma ocorrência vinculada à remessa, assume o atendimento, registra providências e encerra o caso com justificativa.
 
-Este documento consolida a arquitetura da `v1.3.0-rc.1` (`9e3a135`) e a extensão HTTP de observabilidade (`045e1ca`), incorporando os contratos ainda vigentes das versões anteriores. A consolidação não cria uma release estável nem modifica as referências históricas. Os links ao final identificam as fontes completas.
+A v2.0 atende uma organização, com autenticação externa, autorização local e ocorrências manuais. Preserva Tracking assíncrono, notificações simuladas e simulador externo. Transferência comum, reabertura, notificações reais, regras automáticas, IA, importação em lote e multitenancy ficam fora desse escopo. A reatribuição administrativa excepcional assegura a continuidade de atendimentos.
 
-O recorte inclui Orders, Shipments, Carriers, Tracking, Notifications, interface operacional e simulador externo. Gestão de ocorrências, autenticação de usuários, permissões por usuário, multitenancy, envio real de mensagens, integração real com transportadoras e recursos de IA pertencem a evoluções posteriores.
+## 2. Arquitetura
 
-## 2. Arquitetura e responsabilidades
+| Componente | Responsabilidade |
+| --- | --- |
+| **Core** | Entrada pública, interface, Orders, Shipments e Carriers. Ocorrências formam um módulo próprio, com atendimento e histórico. Acesso e sessões possuem responsabilidade técnica separada. |
+| **Tracking** | Autenticação HMAC, adapters Alpha/Beta, admissão durável, coordenação dos eventos e timeline. |
+| **Notifications** | Consumo de fatos de remessa, renderização e registro de notificações simuladas, com consultas próprias. |
+| **Provedor OIDC** | Autenticação de pessoas. Keycloak é a referência local; permissões de negócio pertencem ao Core. |
 
-São três serviços de aplicação, cada um com API, worker, banco, credencial e histórico de migração próprios. Os módulos de negócio do Core permanecem no mesmo serviço. A execução local utiliza uma instância PostgreSQL e um RabbitMQ compartilhados, com segregação lógica de acesso. O Compose define três referências de imagem, uma por serviço, construídas pelo mesmo Dockerfile e alvo `runtime`. A API, o worker e as migrações de cada serviço compartilham sua referência de imagem; isso não implica conteúdos binários distintos nem exige repositórios separados.
+Cada serviço de aplicação possui API, worker, banco PostgreSQL, credenciais e migrações próprios. Módulos do Core usam interfaces Python públicas; serviços se comunicam por contratos HTTP e AMQP, sem acesso ao banco ou imports de implementação alheios. Routers e templates não contêm regras de domínio.
 
-| Serviço | Responsabilidades | Persistência |
-| --- | --- | --- |
-| Core | Entrada pública, interface, pedidos, remessas, cadastro de transportadoras, aplicação de comandos e composição de consultas | Orders, Shipments, Carriers, recibos idempotentes, inbox técnica, outboxes e quarentena |
-| Tracking | Autenticação dos webhooks, adapters, normalização, admissão, coordenação e timeline | Inbox de negócio, comando imutável, TrackingEvents, outbox, inbox técnica e quarentena |
-| Notifications | Recepção de fatos de remessa, renderização, simulação de notificação e consultas | Notifications, inbox técnica, quarentena e auditoria de rearme; sem outbox |
+A aplicação utiliza Python, FastAPI, PostgreSQL, SQLAlchemy async, Alembic, RabbitMQ, aio-pika e Jinja2/HTMX/Bootstrap com assets locais, sem SPA. Locks e imagens identificam as versões efetivas. `fulfillflow` mantém aplicação e Compose; `fulfillflow-infra` mantém implantação Kubernetes, configuração de ambientes e verificação operacional, com versionamento próprio. A portabilidade contempla PostgreSQL e OIDC compatíveis, sem exigir serviços Azure para execução local.
+
+## 3. Identidade e permissões
+
+O login utiliza OIDC Authorization Code com PKCE, validando assinatura, emissor, audiência, `state` e `nonce`. A identidade local é vinculada a `(issuer, subject)`; nome e e-mail são atributos. A autenticação no provedor não concede acesso automaticamente: a identidade precisa estar previamente habilitada no Core.
+
+| Acesso | Permissões |
+| --- | --- |
+| **Leitor (`viewer`)** | Consultar pedidos, remessas, eventos, notificações, ocorrências e histórico. |
+| **Operador (`operator`)** | Consultar; criar, confirmar e cancelar pedidos e criar/cancelar remessas conforme as regras existentes; criar e assumir ocorrências; registrar providências e encerrar aquelas sob sua responsabilidade. |
+| **Administração por CLI** | Habilitar identidades, alterar papéis, bloquear acesso, revogar sessões e reatribuir excepcionalmente atendimentos. Rearmes técnicos permanecem nos comandos restritos do serviço proprietário. |
+
+O cadastro de transportadoras conserva seu mecanismo administrativo, sem novo CRUD público. Identidades referenciadas no histórico não são apagadas. Alterações de acesso registram executor administrativo, alvo, ação, motivo e horário na mesma transação da alteração; essa auditoria é distinta do histórico de atendimento e dos logs técnicos.
+
+Sessões opacas são persistidas no PostgreSQL apenas pelo hash do identificador, com validade absoluta padrão de oito horas, configurável e sem renovação por atividade. Cookies usam `HttpOnly`, `SameSite=Lax` e `Secure` em HTTPS. Logout invalida a sessão atual; bloqueio local invalida todas as sessões do usuário. Mudanças de papel valem nas operações seguintes, inclusive em sessões abertas.
+
+Cada requisição verifica acesso no servidor. Nas mutações, a autorização mantém lock compartilhado sobre o usuário até o commit; revogação usa lock incompatível. Uma operação já autorizada pode concluir antes da revogação, mas nenhuma nova mutação é autorizada após sua confirmação. Usuários envolvidos são bloqueados em ordem estável, antes de sessão, recibo e ocorrência. Bloqueio no provedor não equivale a revogação local; sessões locais válidas continuam limitadas por sua expiração e pelas permissões atuais.
+
+## 4. Ocorrências e transações
+
+A ocorrência referencia uma Shipment existente, da qual obtém o pedido relacionado, sem copiar seu estado logístico. Uma remessa pode ter ocorrências distintas. O registro contém motivo, descrição, estado, responsável, versão e datas; seu histórico preserva autor, ação, conteúdo e horário, somente por acréscimo. IDs são estáveis, horários usam UTC e o relógio de domínio é injetável.
 
 ```mermaid
-flowchart TB
-    U["Cliente / navegador"] --> C["Core"]
-    C -->|"HTTP: webhook e consultas"| T["Tracking"]
-    T -->|"HTTP: cadastro e remessas"| C
-    T -->|"Comando"| B["RabbitMQ"]
-    B -->|"Comando"| C
-    C -->|"Resultado e fato de remessa"| B
-    B -->|"Resultado"| T
-    B -->|"Fato de remessa"| N["Notifications"]
-    C -->|"HTTP: consultas"| N
+stateDiagram-v2
+    direction LR
+    [*] --> OPEN: Criar
+    OPEN --> IN_PROGRESS: Assumir
+    IN_PROGRESS --> IN_PROGRESS: Registrar providência ou reatribuir por CLI
+    IN_PROGRESS --> CLOSED: Encerrar com justificativa
 ```
 
-No diagrama, Core, Tracking e Notifications representam serviços e agrupam suas APIs e workers. Os workers realizam as publicações e os consumos AMQP. A interface é servida pelo Core.
+`OPEN` não possui responsável; assumir atribui o operador autenticado. Em `IN_PROGRESS`, somente o responsável registra providências e encerra. A administração pode reatribuir para outro operador habilitado, com justificativa, controle de versão e histórico, inclusive quando o responsável perde acesso. `CLOSED` é somente leitura. Encerrar não exige entrega da remessa nem altera pedido ou remessa; mudanças logísticas não encerram ocorrências, que podem ser abertas e atendidas mesmo após um estado logístico terminal.
 
-Somente a API Core publica porta de aplicação no host. As APIs internas e o broker permanecem na rede privada do Compose. Workers são processos separados, sem servidor HTTP. Core consulta Notifications quando precisa apresentar seus dados, sem manter uma réplica local nem receber callback de conclusão.
+Cada comando de ocorrência, inclusive a criação, exige `operation_id`. O recibo é único por usuário e operação e valida tipo de comando, recurso e hash do conteúdo; na criação, o recurso de entrada é a remessa. Após confirmar o acesso atual, a aplicação recupera uma repetição idêntica **antes** de validar `expected_version` ou reaplicar regras de transição. Reutilização divergente retorna 409. Uma criação nova não exige `expected_version`: confirma ocorrência, versão inicial, histórico e recibo juntos; sua repetição devolve o mesmo ID e resultado original, sem criar outro registro. Nos comandos de alteração, uma operação nova valida versão e regras sob lock da ocorrência e confirma alteração, incremento de versão, histórico e recibo na mesma transação. A reserva do recibo e suas constraints também protegem repetições concorrentes.
 
-Cada serviço acessa apenas seu banco. Não há joins, chaves estrangeiras, sessões SQL ou imports de implementação entre serviços. Dentro do Core, a comunicação entre módulos usa interfaces Python públicas. DTOs em `contracts` independem de ORM e transporte; `shared` reúne primitivas técnicas, como relógio, IDs e paginação, sem regras de negócio. Routers e templates não contêm regras de domínio, e `domain.py` não depende de FastAPI, SQLAlchemy ou observabilidade.
+Orders, Shipments e Carriers preservam suas regras de domínio. Remessas pertencem a pedidos confirmados; a conclusão do pedido depende da entrega de todas as remessas não canceladas e da existência de pelo menos uma delas. Cancelamentos, transições terminais e ordenação dos eventos continuam independentes do atendimento das ocorrências.
 
-## 3. Tecnologias e execução
+## 5. Eventos e notificações
 
-| Camada | Componentes |
+Core encaminha o webhook ao Tracking, preservando corpo e headers autenticados. Tracking valida HMAC-SHA256 antes de interpretar ou persistir o conteúdo e consulta o cadastro no Core durante a admissão. Para uma mesma transportadora, mesmo ID com bytes diferentes gera conflito; uma repetição idêntica reutiliza o trabalho e o resultado originais.
+
+O webhook exige `Content-Type: application/json` e exatamente uma ocorrência de `X-FulfillFlow-Event-Id`, `X-FulfillFlow-Timestamp` e `X-FulfillFlow-Signature`. A assinatura usa o formato `sha256=<hex>` e HMAC-SHA256 sobre `timestamp + "." + event_id + "." + raw_body`, preservando os bytes originais, com segredo próprio por transportadora e comparação em tempo constante. O timestamp usa segundos Unix, com tolerância padrão de 300 segundos contra replay; o corpo tem limite padrão de 65.536 bytes. O ID externo é sensível a maiúsculas/minúsculas, aceita ASCII visível sem espaços laterais, tem até 128 caracteres e deve coincidir com o ID do payload. Simulador, verificador e Tracking utilizam esse mesmo contrato.
+
+```mermaid
+flowchart LR
+    E["Transportadora"] -->|"Webhook via Core"| A["Tracking: admissão"]
+    A -->|"202 após commit"| E
+    A -->|"tracking.apply.v1"| C["Core: efeitos"]
+    C -->|"tracking.result.v1"| T["Tracking: conclusão"]
+    C -->|"shipment.status_changed.v1"| N["Notifications: simulação"]
+```
+
+As mensagens entre etapas passam pelo RabbitMQ e são publicadas e consumidas pelos workers. A admissão confirma inbox, comando normalizado e outbox juntos antes do 202. Core confirma recibo, efeitos em remessa/pedido, outbox de resultado e, quando aplicável, outbox do fato na mesma transação. Tracking finaliza inbox e timeline localmente; Notifications confirma notificação e conclusão técnica em seu banco.
+
+A recepção persiste a inbox técnica antes do ACK. Publicações usam mensagens persistentes, roteamento obrigatório e confirms; leases com token, recibos e hashes sustentam retomada e deduplicação. Nenhuma conexão ou transação SQL fica retida durante HTTP, publicação AMQP ou ACK. Falhas transitórias têm tentativas limitadas; bloqueios e quarentena exigem diagnóstico e recuperação explícita.
+
+Notifications consome apenas `shipment.status_changed.v1`, gerado por mudança aplicada de estado, com destinatário capturado no Core e identidade vinculada ao evento de Tracking. Os resultados permanecem `SIMULATED` ou `FAILED`; não há envio externo nem publicação de ocorrências nesse contrato. Registros legados preservam sua origem e não geram novos envios.
+
+Aceitação, efeitos logísticos, conclusão do Tracking e simulação da notificação são observações distintas. Fila vazia, ACK ou processo saudável não comprovam conclusão do negócio.
+
+## 6. Interface, APIs e ferramentas
+
+A página inicial apresenta ocorrências por estado, responsável e remessa. O detalhe reúne pedido, remessa, timeline, progresso da notificação e histórico do atendimento. Páginas e APIs compartilham casos de uso e permissões. HTMX atualiza regiões delimitadas sem sobrescrever formulários em edição; polling de pendências termina em resultado terminal, navegação ou prazo de observação, sem reenviar eventos. Falhas de consulta aparecem como indisponibilidade e preservam o último estado conhecido.
+
+| Contrato | Rotas |
 | --- | --- |
-| Aplicação | Python 3.13, FastAPI, Uvicorn, Pydantic v2 e pydantic-settings |
-| Persistência | PostgreSQL 18, SQLAlchemy async, psycopg 3 e Alembic |
-| Mensageria | RabbitMQ 4.2.4 e aio-pika 9.5.8 na referência documentada |
-| Interface | Jinja2, HTMX e Bootstrap locais, sem SPA ou toolchain Node |
-| Empacotamento | uv, lock versionado, Docker e Docker Compose |
-| Qualidade | pytest, Ruff, Mypy, Import Linter e GitHub Actions |
-| Observabilidade | Logs estruturados dos workers, diagnóstico local e extensão HTTP opcional com OpenTelemetry |
+| Autenticação | `GET /auth/login`, `GET /auth/callback`, `GET /auth/session`, `POST /auth/logout` |
+| Criação de ocorrência | `POST /api/v1/occurrences`, com `operation_id`, sem `expected_version`; repetição idêntica retorna o mesmo ID e resultado original. |
+| Consulta de ocorrências | `GET /api/v1/occurrences`, `GET /api/v1/occurrences/{id}` e `/{id}/history` |
+| Atendimento | `POST /api/v1/occurrences/{id}/assume`, `/{id}/notes` e `/{id}/close`, com `operation_id` e `expected_version` |
+| Operações existentes | Rotas de pedidos, remessas, timeline, inbox e notificações mantêm seus contratos de domínio e passam a exigir sessão operacional. |
+| Transportadoras | `POST /api/v1/carriers/{carrier_code}/events`, com HMAC independente da sessão de usuário. |
 
-O `uv.lock` e os digests das imagens da referência fixam as versões efetivas. Kubernetes, Terraform, KEDA e a implantação Azure são tratados no repositório de infraestrutura, sem se tornarem requisitos para executar a aplicação localmente.
+As respostas usam JSON, paginação determinística, timestamps ISO 8601, `X-Request-ID` e erros `application/problem+json`. O prefixo `/api/v1` permanece; a exigência de autenticação é uma mudança de acesso da v2.0. Mutações autenticadas por cookie, inclusive APIs JSON, exigem CSRF. Login, callback, assets e health checks possuem tratamento próprio; rotas internas conservam credenciais segregadas, sem receber cookies dos usuários.
 
-## 4. Domínio e propriedade dos dados
+Demonstração, testes e verificador utilizam um auxiliar de autenticação que percorre o login OIDC real pelo navegador, manualmente ou de forma automatizada para usuários sintéticos habilitados. Após o callback, as ferramentas reutilizam o cookie de sessão em um cookie jar protegido. A sessão é obtida novamente por login após expiração ou logout, sem renovação silenciosa pelo polling nem troca do fluxo por autenticação direta com senha na aplicação.
 
-| Entidade | Informações principais e invariantes |
-| --- | --- |
-| Order | Referência externa única, destinatário sintético, estado e datas. Possui zero ou mais remessas |
-| Carrier | Código único e imutável, nome, situação ativa e chave de adapter. Segredos não ficam no cadastro |
-| Shipment | Pedido, transportadora, código de rastreamento, estado, datas logísticas e chave temporal do último evento determinante. Unicidade por `(carrier_id, tracking_code)` |
-| CarrierEventInbox | ID externo, transportadora, bytes originais, hash, projeção JSON, correlação e estado de processamento. Unicidade por `(carrier_id, external_event_id)` |
-| TrackingEvent | Evento canônico, remessa, horários, resultado e estados anterior/posterior. Histórico somente de acréscimo, com no máximo um registro por inbox |
-| Recibo Core | Identidade estável do comando, hash, decisão e resultado original. A reserva da identidade e os efeitos são confirmados juntos |
-| Notification | Identidade do efeito, remessa, destinatário capturado, canal, template, mensagem e resultado simulado. Unicidade por `tracking_event_id` |
+`GET /auth/session` exige sessão válida e retorna `expires_at` e `csrf_token`, vinculado à sessão, sem expor seu identificador. A resposta usa `Cache-Control: no-store`, não prolonga a sessão e não permite leitura por CORS de outra origem. APIs JSON e chamadas HTMX enviam o token em `X-CSRF-Token`; formulários podem enviá-lo no campo `csrf_token`. Sessão ausente, expirada ou revogada retorna 401 nas APIs; permissão insuficiente ou CSRF inválido retorna 403. Reautenticação não repete automaticamente uma mutação de resultado incerto.
 
-UUIDs e timestamps usam tipos nativos do PostgreSQL, com horários em UTC. Estados usam texto com restrições nomeadas. Chaves estrangeiras existem somente dentro do banco proprietário; IDs de outros serviços são referências externas. O histórico de negócio não é removido por exclusão em cascata. O tempo de domínio vem de um `Clock` injetável.
+O simulador envia o webhook apenas com HMAC, sem exigir sessão ou CSRF nessa chamada. Preparação de pedidos/remessas exige sessão de operador e CSRF; consultas de conclusão, inclusive ao endereço de `Location`, usam sessão com permissão de leitura, sem CSRF. Sessões e tokens ficam em memória ou armazenamento temporário restrito, fora do Git, sem exposição em argumentos ou logs. Não há desvio de autenticação nem uso externo do token interno dos serviços.
 
-`tracking_code` é normalizado com remoção de espaços laterais e conversão para maiúsculas. O ID externo do evento é sensível a maiúsculas/minúsculas, aceita ASCII visível sem espaços laterais e tem limite de 128 caracteres. `raw_body` preserva os bytes autenticados; `parsed_payload` é apenas uma projeção de consulta.
+## 7. Execução e atualização
 
-### Pedidos e remessas
+Compose executa os três serviços, seus workers, PostgreSQL, RabbitMQ e Keycloak. Apenas Core e o acesso de login do provedor publicam portas locais em loopback; bancos, broker e APIs internas ficam privados. O provedor possui persistência e credenciais próprias. URLs de emissor e callback são coerentes entre navegador e contêineres. Fora do ambiente local, as entradas usam HTTPS e segredos fornecidos pelo ambiente.
 
-Order permite `CREATED → CONFIRMED → FULFILLED` e `CREATED → CANCELLED`. Remessas são criadas somente para pedidos confirmados. Um pedido é concluído quando existe ao menos uma remessa não cancelada e todas as remessas não canceladas estão entregues. Essa condição é reavaliada na entrega ou no cancelamento de uma remessa, sob os locks correspondentes. Confirmar um pedido já confirmado ou cancelar um já cancelado é idempotente; outras ações incompatíveis retornam conflito.
+A preparação idempotente cria usuários e operações sintéticas. Alembic controla os schemas; aplicações não criam tabelas no startup. A v2.0 usa recursos próprios e preserva tags, commits e evidências 1.x. Migrações são verificadas em bancos novos e, quando houver migração de dados, em cópias descartáveis da base correspondente, sem fabricar histórico, atores ou eventos.
 
-| Estado da remessa | Próximos estados permitidos |
-| --- | --- |
-| `PENDING` | `POSTED`, `IN_TRANSIT`, `OUT_FOR_DELIVERY`, `DELIVERED`, `EXCEPTION`, `CANCELLED` |
-| `POSTED` | `IN_TRANSIT`, `OUT_FOR_DELIVERY`, `DELIVERED`, `EXCEPTION`, `RETURNED` |
-| `IN_TRANSIT` | `OUT_FOR_DELIVERY`, `DELIVERED`, `EXCEPTION`, `RETURNED` |
-| `OUT_FOR_DELIVERY` | `IN_TRANSIT`, `DELIVERED`, `EXCEPTION`, `RETURNED` |
-| `EXCEPTION` | `IN_TRANSIT`, `OUT_FOR_DELIVERY`, `DELIVERED`, `RETURNED` |
-| `DELIVERED`, `RETURNED`, `CANCELLED` | Nenhum |
+Kubernetes utiliza aplicação explícita de manifests Kustomize versionados, imagens identificadas por digest e verificação funcional autenticada. A atualização interrompe novas admissões e escritores de forma controlada, aplica migrações, inicia a referência candidata e verifica o fluxo. Workers encerram com prazo limitado, preservando trabalho retomável. O procedimento admite manutenção e não depende de coexistência entre versões.
 
-A remessa começa em `PENDING`. Cancelamento manual é permitido nesse estado e é idempotente em `CANCELLED`; não cria evento de transportadora, timeline ou notificação. Eventos externos não produzem `CANCELLED`. Saltos previstos na tabela acomodam eventos intermediários ausentes. `shipped_at` recebe o horário do primeiro evento aplicado de movimento logístico, inclusive entrega ou devolução; `EXCEPTION` isolado não comprova postagem. `delivered_at` recebe o horário da entrega aplicada.
+Recuperar configuração, voltar uma imagem e reverter banco são procedimentos distintos. Uma imagem anterior só é retomada se compatível com o schema vigente; falha de implantação não aciona downgrade destrutivo automático.
 
-### Ordenação e resultado
-
-A aplicação ordena eventos pela tupla `(occurred_at, received_at, external_event_id)`. No `PENDING` inicial, o primeiro evento válido não é considerado atrasado apenas por anteceder a criação da remessa. Depois dele, uma chave anterior produz `IGNORED_STALE`. Um estado repetido com chave posterior produz `NO_STATE_CHANGE` e atualiza a chave temporal, sem notificar nem reavaliar o pedido. Uma transição não permitida produz `IGNORED_INVALID_TRANSITION`. Uma alteração válida produz `APPLIED`.
-
-Os quatro resultados integram a timeline sem regredir o estado da remessa. Rejeições permanentes, como remessa não localizada, finalizam o inbox como `REJECTED`, sem TrackingEvent. A rejeição persistida no recibo não muda se a remessa for criada posteriormente.
-
-## 5. Entrada de eventos e adapters
-
-O webhook público é `POST /api/v1/carriers/{carrier_code}/events`. Core encaminha os bytes e headers relevantes ao Tracking. A admissão depende da consulta ao cadastro de Carrier no Core; a arquitetura assíncrona não elimina essa dependência HTTP.
-
-Tracking exige `Content-Type: application/json` e exatamente uma ocorrência de `X-FulfillFlow-Event-Id`, `X-FulfillFlow-Timestamp` e `X-FulfillFlow-Signature`. A assinatura é HMAC-SHA256 de `timestamp + "." + event_id + "." + raw_body`, com comparação em tempo constante, segredo próprio por transportadora e validação antes de parsing ou persistência. O timestamp usa segundos Unix, com tolerância padrão de 300 segundos; o corpo tem limite padrão de 65.536 bytes. O ID do payload deve coincidir com o header autenticado.
-
-Os adapters Alpha e Beta pertencem ao Tracking e são selecionados por uma lista estática de implementações permitidas. Eles validam e normalizam o payload sem consultar banco ou alterar o estado de negócio. O contrato canônico contém `external_event_id`, `tracking_code`, `canonical_status`, `external_status`, `occurred_at`, `description` e `location`. O horário externo deve incluir fuso; campos adicionais do fornecedor permanecem apenas no registro bruto e na projeção JSON.
-
-| Estado canônico | Carrier Alpha | Carrier Beta |
+| Recursos e campos | Responsável | Regra de atualização |
 | --- | --- | --- |
-| `POSTED` | `CREATED` | `label_created` |
-| `IN_TRANSIT` | `MOVING` | `hub_scan` |
-| `OUT_FOR_DELIVERY` | `OUT_FOR_DELIVERY` | `courier_route` |
-| `DELIVERED` | `DELIVERED` | `completed` |
-| `EXCEPTION` | `PROBLEM` | `delivery_issue` |
-| `RETURNED` | `RETURNED` | `returned_origin` |
+| Templates dos workloads, incluindo imagens, ambiente, recursos e probes; ConfigMaps e referências de Secrets | Manifests versionados | Alterações persistentes entram no overlay; intervenção temporária registra a configuração anterior e sua restauração. |
+| `spec.replicas` dos workloads sem autoescalonamento, incluindo `core-worker` no perfil fixo | Manifests versionados | A quantidade segue o perfil do ambiente; mudanças temporárias são restauradas ao final da intervenção. |
+| `core-worker.spec.replicas` no perfil escalonado, com mínimo de uma réplica | HPA gerenciado pelo KEDA | O overlay omite esse campo; aplicação de manifests e scripts de entrega não impõem contagem paralela. |
+| Política do ScaledObject e configuração do HPA correspondente | Política nos manifests; HPA gerado pelo KEDA | Limites e sinais são alterados no ScaledObject, sem edição direta do HPA gerado. Campos de status e recursos derivados pertencem aos controladores. |
 
-O comando `ApplyEventCommand` recebe identidade determinística vinculada ao UUID do inbox e hash canônico que inclui conteúdo, hash bruto e ordenação. Depois de persistido, o comando é imutável. Mesmo ID externo e mesmos bytes reutilizam o trabalho original; mesmo ID e bytes diferentes produzem conflito, sem sobrescrita.
+A passagem do perfil fixo para o escalonado transfere a propriedade de `spec.replicas`, incluindo o registro de aplicação anterior, sem reduzir inadvertidamente a contagem. Intervenções no alvo escalonado utilizam pausa pelo ScaledObject, com `autoscaling.keda.sh/paused-replicas` para fixar a quantidade desejada, e aguardam a pausa e a convergência antes de prosseguir. Ao terminar, removem a pausa, restauram a política versionada e conferem a retomada do escalonamento e o resultado funcional. Os demais workloads mantêm réplicas fixas.
 
-## 6. Fluxo e transações locais
+## 8. Observabilidade e aceite
 
-| Etapa | Confirmação local e consequência |
-| --- | --- |
-| Admissão no Tracking | Grava inbox de negócio `RECEIVED`, comando normalizado e outbox juntos. Após o commit, responde 202 sem aguardar o broker |
-| Publicação do comando | Tracking publica `tracking.apply.v1` a partir da outbox; a confirmação do broker permite registrar `SENT` |
-| Recepção no Core | Persiste a mensagem na inbox técnica antes do ACK. O processamento pode ocorrer depois |
-| Aplicação no Core | Confirma recibo, efeitos em Shipment/Order, outbox de resultado, outbox de fato quando `APPLIED` e inbox técnica `DONE` na mesma transação |
-| Finalização no Tracking | Após recepção durável do resultado, confirma timeline, finalização do inbox de negócio e inbox técnica `DONE` em transação local |
-| Recepção em Notifications | Persiste o fato na inbox técnica antes do ACK, independentemente da finalização do Tracking |
-| Simulação em Notifications | Confirma o registro de notificação e a inbox técnica `DONE` juntos |
+Logs e consultas de diagnóstico correlacionam usuário, ocorrência, operação e evento, sem segredos, cookies ou corpos completos. Histórico de atendimento e auditoria de acesso permanecem consultáveis independentemente dos logs. A instrumentação HTTP existente é preservada; cobertura de novos fluxos depende de instrumentação explícita. Saúde de API, worker, dependências e trabalho bloqueado são sinais distintos; readiness confere banco e schema.
 
-Cada coordenador controla sua transação; repositories não confirmam parcialmente a unidade de trabalho. A aplicação usa `READ COMMITTED`, restrições de unicidade e locks reais. No Core, o lock de Shipment precede o de Order. Nenhuma conexão, transação ou lock SQL permanece retido durante HTTP, publicação AMQP ou ACK. A aplicação de comandos usa mensageria, sem endpoint ou fallback HTTP síncrono para esse processamento.
+O aceite exige jornada autenticada completa, permissões no servidor, recusa de identidade não habilitada, revogação concorrente, idempotência antes do conflito de versão, reatribuição auditada, rollback e retomada sem duplicação. As verificações usam PostgreSQL, RabbitMQ e provedor OIDC reais nas fronteiras pertinentes e preservam regressões dos fluxos logísticos. Incluem simulador/verificador autenticados, migrações, build, interface e gates de pytest, Ruff, Mypy e Import Linter. A demonstração comprova atendimento e histórico sem alteração indevida de pedido ou remessa.
 
-Falha ao gravar uma outbox local reverte os demais efeitos daquela transação. Indisponibilidade do destinatário é tratada posteriormente pelo transporte. Recibos repetidos devolvem a decisão original, sem recalcular efeitos, destinatários ou horários. Tracking valida identidade e hash do comando ao aplicar o resultado; uma conclusão divergente não substitui a anterior.
+## 9. Referências
 
-A ordem de chegada entre o resultado Tracking e o fato Notifications é livre. Shipment e Order podem estar atualizados enquanto Tracking ou Notifications ainda têm pendências. Cada etapa possui atomicidade local; não existe commit distribuído nem uma fotografia global atômica do fluxo.
-
-## 7. Mensagens e transporte durável
-
-| Tipo | Origem → destino | Conteúdo e identidade |
-| --- | --- | --- |
-| `tracking.apply.v1` | Tracking → Core | `ApplyEventCommand`, com identidade e ordenação originais |
-| `tracking.result.v1` | Core → Tracking | `command_sha256` e resultado aplicado ou rejeitado, preservando a decisão original |
-| `shipment.status_changed.v1` | Core → Notifications | `shipment_id`, `resulting_status` e `recipient` capturado durante a aplicação; `event_id` corresponde à identidade do efeito |
-
-Os envelopes contêm `schema_version`, `type`, `message_id`, `event_id`, `correlation_id`, `causation_id`, `request_id`, `created_at`, `payload` e `payload_sha256`. `correlation_id` identifica o inbox original. No comando, `causation_id` é o inbox; no resultado e no fato de remessa, é a mensagem de comando. IDs são criados uma vez e persistidos. A serialização é canônica, usa UTC, rejeita campos adicionais e limita o envelope a 64 KiB em UTF-8. Propriedades AMQP e envelope devem corresponder. Hash verifica conteúdo; autenticação do remetente depende das credenciais do transporte.
-
-O RabbitMQ usa três fluxos com exchanges direct e filas classic duráveis, em nó único, sem exclusive ou auto-delete. O fluxo de Notifications usa exchange `shipment.status_changed.v1`, fila `shipment.status_changed.v1.queue` e routing key igual ao tipo, sem TTL. Bindings são declarados antes da publicação. Vhost e permissões distinguem os serviços; AMQP e management não ficam expostos no host no ambiente padrão.
-
-### Publicação e recepção
-
-Outboxes existem apenas no Core e no Tracking, com unicidade por `(type, event_id)`. Seus estados são `PENDING`, `LEASED`, `SENT` e `BLOCKED`, com tentativa, prazo, token de posse e motivo. O publicador reserva lotes com `FOR UPDATE SKIP LOCKED`, confirma a reserva, libera a sessão e publica mensagens persistentes com `mandatory` e publisher confirms. Somente confirmação positiva sem retorno permite marcar `SENT`, condicionada ao token vigente. Uma posse expirada pode ser retomada; o proprietário antigo não sobrescreve a nova.
-
-Timeout, retorno de roteamento ou perda de confirmação podem exigir republicação da mesma mensagem. A recepção verifica `message_id`, identidade lógica e hash. Duplicatas idênticas não repetem efeitos; divergências preservam o original e geram diagnóstico. O ACK ocorre depois da persistência técnica, não depois da conclusão de negócio. Se o commit da recepção for incerto, o consumidor não confirma e reconecta, permitindo nova entrega idempotente.
-
-No Core, os publicadores de resultado Tracking e fato Notifications têm seleção por tipo antes do limite do lote, canais e esperas independentes. Backlog ou falha controlada de um fluxo não ocupa a seleção do outro. Ambos continuam compartilhando processo, banco e broker.
-
-### Tentativas e recuperação
-
-Inboxes técnicas usam `PENDING`, `RETRY_WAIT`, `DONE` e `BLOCKED`. Falha transitória de um item permite cinco tentativas por geração, com intervalos de 1, 5, 15 e 60 segundos. Tentativas e prazos são persistidos. Esgotamento ou erro inesperado bloqueia o item; rejeição de negócio produz resultado terminal. Savepoints permitem registrar tentativas sem confirmar efeitos parciais. Perda da conexão reverte a transação inteira e deixa o trabalho retomável.
-
-Indisponibilidade global de banco ou broker pausa o componente com espera progressiva limitada a 30 segundos, sem esgotar rapidamente as tentativas de cada item. Mensagens inválidas, desconhecidas ou conflitantes são preservadas em quarentena durável e limitada antes do ACK. Falha ao registrar a quarentena não autoriza descarte silencioso.
-
-O reinício dos workers permite retomar trabalho persistido, inclusive após ACK e com a fila do broker vazia. Itens `BLOCKED` exigem rearme pelo CLI do serviço proprietário, com ID, hash esperado, banco alvo e motivo. O rearme cria uma geração auditável sem alterar payload ou identidade; não reprocessa `DONE` nem reenfileira quarentena automaticamente. A recuperação depende da disponibilidade dos processos e armazenamentos, sem garantia contra perda permanente de disco.
-
-## 8. Notificações simuladas
-
-Uma notificação é gerada somente para uma transição de Tracking com resultado `APPLIED`. `NO_STATE_CHANGE`, `IGNORED_STALE`, `IGNORED_INVALID_TRANSITION`, rejeições, duplicatas, criação de remessa, cancelamento manual e conclusão do pedido por si só não geram notificação.
-
-O destinatário é capturado do pedido na transação Core e segue no fato, com limite de 254 caracteres. Notifications não consulta o pedido para atualizá-lo. O serviço define o canal `EMAIL` e o template determinístico; não recebe o corpo bruto da transportadora. A identidade lógica é `tracking_event_id`, correspondente ao `event_id` do fato. Eventos aplicados distintos geram registros distintos, mesmo referentes à mesma remessa ou ao mesmo estado em momentos diferentes.
-
-O resultado é `SIMULATED` ou `FAILED`. Sucesso registra `created_at` e `simulated_at` durante a simulação. Falha esperada de renderização registra `FAILED`, detalhe sanitizado e `simulated_at=null`; também conclui a inbox técnica. Falhas operacionais permanecem no mecanismo de tentativa/bloqueio e não são convertidas em `FAILED` de negócio. Registros terminais não são simulados novamente.
-
-Notifications não é um serviço genérico de envio: aceita o fato de remessa definido acima e não integra SMTP, API de e-mail ou outro provedor externo. A garantia demonstrada é um registro simulado por efeito, sustentado por transações e unicidade locais. Envio real acrescentaria outra fronteira de confirmação e requer contrato próprio.
-
-## 9. API e consultas
-
-As APIs públicas usam `/api/v1`, JSON UTF-8, campos em `snake_case`, timestamps ISO 8601 com fuso e paginação por `page` e `page_size` (padrão 25, máximo 100). Erros seguem `application/problem+json`, com código estável e detalhe sanitizado, inclusive validação, 404 e 405. Todas as respostas propagam um `X-Request-ID` válido ou gerado pela aplicação.
-
-| Operação | Rotas públicas |
-| --- | --- |
-| Pedidos | `POST/GET /api/v1/orders`; `GET /api/v1/orders/{order_id}`; `POST /api/v1/orders/{order_id}/confirm` e `/cancel` |
-| Remessas | `POST/GET /api/v1/shipments`; `GET /api/v1/shipments/{shipment_id}`; `POST /api/v1/shipments/{shipment_id}/cancel` |
-| Timeline | `GET /api/v1/shipments/{shipment_id}/tracking` |
-| Admissão de evento | `POST /api/v1/carriers/{carrier_code}/events` |
-| Inbox de negócio | `GET /api/v1/carrier-events` e `/api/v1/carrier-events/{inbox_event_id}` |
-| Notificações | `GET /api/v1/notifications` e `/api/v1/notifications/{notification_id}` |
-| Progresso da notificação | `GET /api/v1/notification-status/{tracking_event_id}` |
-| Saúde | `GET /health/live` e `/health/ready` |
-
-### Aceitação e conclusão do evento
-
-| Condição | Resposta |
-| --- | --- |
-| Evento novo admitido | 202 após commit local, mesmo que o processamento termine antes de a resposta chegar |
-| Mesmo ID e hash ainda pendentes | 202 com referência ao inbox original |
-| Mesmo ID e hash já processados | 200, `DUPLICATE` e resultado original |
-| Mesmo ID e hash rejeitados | Erro permanente original, sem novo trabalho |
-| Mesmo ID com bytes diferentes | 409, sem sobrescrever o original |
-| Carrier desconhecido/inativo; autenticação inválida; corpo excessivo; mídia inválida | 404, 401, 413 ou 415, respectivamente, sem persistência de admissão |
-| JSON, schema, status externo ou ID inválidos após autenticação | 422 e inbox `REJECTED`, sem comando para aplicação |
-| Falha de infraestrutura durante a admissão | 503 sanitizado; confirmação incerta não comprova ausência de efeitos |
-
-A resposta 202 contém `inbox_event_id`, `external_event_id`, `status=RECEIVED`, `received_at` e `request_id`. `Location` aponta à consulta do inbox e `Retry-After: 1` orienta a observação. O trabalho preserva a correlação original; a resposta usa a correlação da requisição atual. Um reenvio com mesmo ID e mesmos bytes pode esclarecer uma admissão incerta, mantendo a autenticação válida.
-
-A consulta apresenta `RECEIVED`, `PROCESSED` ou `REJECTED`, resultado terminal, `tracking_event_id` quando aplicável e `completed_at`. O progresso local distingue `QUEUED`, `AWAITING_RESULT`, `COMPLETED` e `BLOCKED_LOCAL`; ele não representa uma visão sincronizada do Core. `processed_at` preserva a decisão original e `completed_at` registra a finalização no Tracking, sem representar o instante exato do commit. Rejeições posteriores ao 202 aparecem na consulta; não alteram a resposta já enviada.
-
-A admissão pode funcionar com o broker indisponível se Core, Tracking e os bancos necessários estiverem acessíveis. O trabalho acumula na outbox, sujeito à capacidade disponível. A adoção de 202 desde a v1.2 alterou a semântica dos clientes síncronos anteriores, embora o prefixo `/api/v1` tenha permanecido.
-
-### Consulta de notificação
-
-A lista de Notifications contém registros terminais, com filtros por `status`, `shipment_id` e intervalo de criação inclusivo, ordenados por `created_at DESC, id DESC`. Lista vazia não representa ausência de trabalho pendente. Falha na consulta remota retorna 503 sanitizado, sem fallback para tabela histórica, zero artificial ou 404 inventado.
-
-O progresso por `tracking_event_id` combina leituras identificadas por horário. Core consulta recibo e outbox localmente, encerra a transação e consulta Notifications quando necessário. Recibo inexistente retorna 404; resultado sem notificação retorna `required=false`. Para `APPLIED`, a resposta separa publicação (`PENDING/LEASED/SENT/BLOCKED`), processamento (`NOT_RECEIVED/PENDING/RETRY_WAIT/BLOCKED/DONE`), registro terminal e origem `ASYNC/LEGACY`. `core_observed_at` e `notifications_observed_at` indicam os instantes de observação.
-
-Uma conclusão remota pode aparecer antes de a publicação local ser marcada como `SENT`. Um registro importado `LEGACY` mantém seu resultado original sem inventar progresso técnico. Para efeito `APPLIED` sem outbox, somente um registro explicitamente importado justifica essa variante; ausência remota ou registro `ASYNC` nessa situação é erro de integridade.
-
-## 10. Interface e simulação
-
-A interface é renderizada no servidor e navega por Dashboard, Orders, Shipments, Inbox, Notifications e Simulator. Páginas e requisições HTMX usam os mesmos casos de uso. O detalhe do pedido reúne suas remessas; timeline, inbox e notificações oferecem consultas sanitizadas. Templates não interpretam regras de transição nem importam persistência.
-
-A interface diferencia evento aceito, resultado Tracking e notificação simulada. A observação de pendências consulta a cada segundo por até 30 segundos e termina em conclusão, rejeição, bloqueio aplicável, navegação ou prazo. Uma nova observação somente consulta, sem reenviar evento ou rearmar trabalho. Em erro de consulta, preserva o último estado conhecido. O dashboard apresenta contagens remotas indisponíveis como indisponíveis, sem convertê-las em zero.
-
-O simulador de transportadoras executa fora da aplicação, pelo webhook público. Oferece cenários de evento válido, duplicidade, ordem invertida, status desconhecido e assinatura inválida para Alpha e Beta. Separa aceitação e conclusão, consulta `Location` e usa prazo configurável. A conclusão do cenário de Tracking não comprova a simulação de Notifications, que tem consulta própria. A tela Simulator documenta o uso do cliente externo.
-
-## 11. Segurança e exposição
-
-A linha 1.x é destinada ao ambiente controlado e não possui login, SSO ou autorização de usuários. Formulários mutáveis usam sessão assinada, CSRF e Post/Redirect/Get. APIs JSON e webhooks permanecem sem cookies de sessão. Assets são locais e compatíveis com a política de segurança de conteúdo; CORS fica desabilitado por padrão.
-
-Rotas internas sob `/internal/v1` exigem um único `X-FulfillFlow-Internal-Token`, comparado em tempo constante. Core/Tracking usam seu segredo compartilhado; Core/Notifications possuem outro segredo. HMAC fica no Tracking e o segredo da sessão HTML fica no Core. O token interno não substitui a autenticação da transportadora. Cada processo recebe apenas o DSN e as credenciais que lhe pertencem.
-
-Timeouts HTTP padrão são 30 segundos para encaminhamento ao Tracking, 10 segundos para chamadas ao Core e 2 segundos para consultas a Notifications, estas sem retry automático. URLs internas vêm de configuração, sem destinos arbitrários fornecidos pelo cliente. Não há endpoint público para rearme administrativo. Credenciais, assinaturas, destinatários, corpos completos e exceções brutas não são expostos em logs ou respostas.
-
-## 12. Operação, dados e migrações
-
-O projeto Compose `fulfillflow-v13` usa volumes próprios, bancos `fulfillflow_core`, `fulfillflow_tracking` e `fulfillflow_notifications` e roles segregadas. Jobs aplicam as migrações antes das aplicações. Os heads da referência funcional são `1301_core`, `1203_tracking` e `1301_notifications`. Alembic é responsável pelo schema; APIs e workers não criam tabelas no startup.
-
-| Processo | CPU | Memória | Pool SQL / overflow |
-| --- | --- | --- | --- |
-| Cada API: Core, Tracking ou Notifications | 0,5 | 384 MiB | 2 / 0 |
-| Cada worker: Core, Tracking ou Notifications | 0,5 | 384 MiB | 3 / 0 |
-| PostgreSQL | 2 | 2560 MiB | Não aplicável |
-| RabbitMQ | 0,5 | 512 MiB | Não aplicável |
-
-Esses limites correspondem ao ambiente funcional local, totalizando 5,5 CPUs e 5376 MiB, sem jobs e ferramentas auxiliares. Cada worker usa um processo, prefetch 8, lote de publicação 20 por publicador, consulta local de pendências a cada 500 ms, lease de 30 segundos e prazo de confirmação de 5 segundos. O encerramento gracioso aguarda até 15 segundos; Compose concede 20 segundos. Falha inesperada de um loop obrigatório encerra o processo, em vez de deixá-lo parcialmente ativo.
-
-`/health/live` não consulta banco. `/health/ready` verifica acesso SQL e head do schema, retornando 503 se indisponíveis; o startup falha quando esses requisitos não são atendidos. Workers têm heartbeat atualizado a cada 500 ms e healthcheck local sem HTTP. Arquivo com mais de 5 segundos ou loop sem atividade por 45 segundos invalida a saúde. Saúde da API, saúde dos workers, dependência indisponível e trabalho bloqueado são observações distintas.
-
-A identidade do nó RabbitMQ deve permanecer estável ao reutilizar o volume. Scripts e ensaios operam em recursos isolados; volumes e imagens históricos são preservados. Alterar variáveis de senha não altera automaticamente credenciais já criadas em bancos ou broker.
-
-### Corte e legado
-
-A migração de Notifications da v1.2 para a v1.3 é offline, executada em cópias descartáveis durante sua verificação. Suspende novos escritores, drena o trabalho retomável, resolve bloqueios e exporta/importa registros pelos respectivos proprietários. Preserva IDs, destinatários, mensagens, estados, erros e horários. A importação é idempotente; divergências interrompem o procedimento. A tabela antiga no Core permanece arquivada e fora do runtime.
-
-Registros importados usam `LEGACY`, sem envelopes ou tentativas históricos inventados. Se um fato chegar para um efeito já importado, o serviço preserva a notificação, registra `LEGACY_EVENT_SUPPRESSED` em quarentena e conclui a inbox técnica na mesma transação, sem nova simulação. A ausência de outbox em recibo legado não autoriza fabricar uma publicação.
-
-Inboxes anteriores à adoção de outbox, ainda `RECEIVED` e sem trabalho técnico, são identificadas como legado pendente, com progresso nulo. Migrações não as publicam automaticamente. O corte não promete atualização online, convivência de escritores antigos/novos ou rollback de schema após novos eventos.
-
-## 13. Observabilidade
-
-Workers emitem logs JSON com horário UTC, serviço, etapa, identidades, tentativa, duração, resultado e categoria controlada de erro. O diagnóstico local apresenta contagens e idade das pendências, bloqueios, gerações, motivos, atividade e correlação por ID. Outbox, inbox técnica, fila do broker e inbox de negócio representam etapas diferentes; suas contagens não são somadas como eventos únicos.
-
-O ACK transfere a recuperação para a persistência técnica. Por isso, fila vazia, publicação `SENT`, HTTP 202 ou processo saudável não bastam para confirmar o resultado de negócio. A conclusão é verificada pelos registros e consultas da etapa correspondente. O prefetch limita mensagens sem ACK, não o trabalho acumulado no PostgreSQL.
-
-### Extensão HTTP opcional
-
-A referência `045e1ca` acrescenta OpenTelemetry desabilitado por padrão (`OTEL_ENABLED=false`). Quando ativado em Core e Tracking, cobre somente a listagem `GET /api/v1/carrier-events` e sua consulta interna `/internal/v1/tracking/carrier-events`, com servidor Core, cliente HTTP interno e servidor Tracking. Um observador pode fornecer o span pai por `traceparent`; o trace não substitui request ID ou identidade de negócio.
-
-A exportação usa OTLP HTTP, provider por aplicação e lotes limitados. Atributos restringem-se a método, rota canônica, status e categorias de erro. Não são exportados query, URL completa, headers, corpos, SQL ou exceções; `baggage` e `tracestate` não são propagados nessa fatia. Falha de exportação não altera o resultado de negócio.
-
-Essa extensão não instrumenta webhooks, SQL, AMQP, workers ou Notifications. Requisitos históricos de métricas e tracing mais amplos não são considerados implementados apenas por esses logs ou spans. A infraestrutura mantém as avaliações e configurações específicas de observação, sem ampliar retroativamente a cobertura da aplicação.
-
-## 14. Verificação e integração com infraestrutura
-
-As verificações cobrem regras de estado, adapters/HMAC, idempotência, concorrência, transações, publicação e ACK incertos, reinício, bloqueio/rearme, isolamento de dados, consultas/UI e importação sem nova simulação. Persistência e locks usam PostgreSQL real; transporte e permissões usam RabbitMQ real. Mocks complementam falhas focais. Ruff, formatação, Mypy, Import Linter, pytest e Alembic sustentam a validação, com cobertura global mínima de 80% e cobertura das regras críticas.
-
-A demonstração funcional usa dados sintéticos e distingue os resultados de cada etapa. Avaliações comparativas, campanhas de desempenho e seus limites permanecem nos relatórios próprios; seus números não são critérios arquiteturais nem comprovação geral de confiabilidade. Parâmetros de execução, instrumentação e recursos precisam acompanhar qualquer medição.
-
-O repositório `fulfillflow-infra` fornece manifests Kubernetes, Terraform e avaliações operacionais, de escala, observabilidade e portabilidade AKS. Ele consome imagens e contratos identificados por versão/commit e mantém sua própria configuração. A aplicação continua executável com Compose; disponibilidade de ambiente cloud, alta disponibilidade e comportamento de escalonamento dependem da implantação e de suas verificações específicas.
-
-## 15. Referências de implementação
-
-- [Aplicação v1.3.0-rc.1: arquitetura funcional](https://github.com/campos-labs/fulfillflow/blob/9e3a135a00db218643633c7165d3106f0c8285e1/DESIGN.md).
-- [Extensão HTTP: arquitetura consolidada de origem](https://github.com/campos-labs/fulfillflow/blob/045e1ca8629409b6abdf2829ef5c93d14cfb60d9/DESIGN.md).
-- [README: configuração, comandos e comportamento executável](https://github.com/campos-labs/fulfillflow/blob/045e1ca8629409b6abdf2829ef5c93d14cfb60d9/README.md).
-- [DEMO: jornada e verificações funcionais](https://github.com/campos-labs/fulfillflow/blob/9e3a135a00db218643633c7165d3106f0c8285e1/docs/DEMO.md).
-- [Contratos herdados da v1.2](https://github.com/campos-labs/fulfillflow/blob/9b445f9b5466cd302c89f1deed7a9c051cb397ae/DESIGN.md) e [da v1.1](https://github.com/campos-labs/fulfillflow/blob/217e29a230689da3bd6359790f0753b41a10a927/DESIGN.md).
-- [Infraestrutura: arquitetura operacional](https://github.com/campos-labs/fulfillflow-infra/blob/c9dcaf745f126df8fe7902cb449391f63e9de3f8/DESIGN.md).
-- [Avaliação funcional comparativa preservada](https://github.com/campos-labs/fulfillflow/blob/b481699c3fcbfbf51e6391b66bb4b0c57d2dcdb5/validation/functional/EVALUATION.md).
+- [Gestão de transportes — Microsoft Dynamics 365](https://learn.microsoft.com/en-us/dynamics365/supply-chain/transportation/transportation-management-overview): referência de domínio para pedidos, remessas e operações de transporte.
+- [OpenID Connect Core](https://openid.net/specs/openid-connect-core-1_0.html) e [integração OIDC no Keycloak](https://www.keycloak.org/securing-apps/oidc-layers): autenticação, identidade e integração com o provedor.
+- [OWASP — prevenção de CSRF](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html): vinculação e transmissão de tokens nas operações autenticadas por sessão.
+- [PostgreSQL — bloqueios explícitos](https://www.postgresql.org/docs/18/explicit-locking.html): concorrência e coordenação entre operações e revogação.
+- [Transactional Outbox](https://microservices.io/patterns/data/transactional-outbox.html) e [RabbitMQ — confirms e acknowledgements](https://www.rabbitmq.com/docs/confirms): persistência local, publicação e confirmação de transporte.
+- [HTMX — polling](https://htmx.org/docs/#polling): atualização parcial e observação limitada de processamento.
+- [Kubernetes Kustomize](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/), [HPA](https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/) e [KEDA — pausa escalonamento](https://keda.sh/docs/2.20/concepts/scaling-deployments/#pausing-autoscaling): aplicação de manifests, propriedade de réplicas e intervenção operacional.
