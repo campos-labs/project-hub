@@ -92,7 +92,7 @@ flowchart TD
 
 FULL considera todas as regras aplicáveis, com insuficiências explícitas; FOCAL informa seleção, expansão e itens não avaliados. Limites de tamanho/contexto e cobertura são homologados; excedentes geram parcialidade ou recusa, nunca truncamento silencioso. Referências explícitas entre unidades, fontes e avaliações bastam; não há `EvidenceGraph` genérico ou índice vetorial obrigatório.
 
-**Provider e orçamento:** modelo real, versão solicitada/retornada quando disponível, prompt e parâmetros registrados; chamadas/tokens/tempo limitados por run, compartilhados entre nós, subgrafos, retries e retomadas. Reservar tentativa antes do envio; timeout permanece consumido; retries ocultos são desabilitados ou contabilizados. Resposta inválida/truncada não vira resultado válido; cache inclui conteúdo, fontes, regras, prompt/modelo e implementação relevante.
+**Provider e orçamento:** modelo real, versão solicitada/retornada quando disponível, prompt e parâmetros registrados; chamadas/tokens/tempo limitados por run, compartilhados entre nós, subgrafos, retries e retomadas. Reservar tentativa antes do envio; timeout permanece consumido; retries ocultos são desabilitados ou contabilizados. Resposta inválida/truncada não vira resultado válido. Cache de resultados isolado por workspace; chave inclui snapshots das entradas/fontes/regras, modo/escopo FULL ou FOCAL, projeção, rota, etapa/bloco, prompt/modelo/parâmetros, implementação relevante e escopo de acesso. Cada reutilização revalida autorização sobre as entradas/evidências e elegibilidade das fontes; contextos incompatíveis não compartilham resultados nem cobertura.
 
 ### Decisões e Execução Durável
 
