@@ -23,7 +23,7 @@ class VendorProfile(BaseModel):
     phone_number: str | None = Field(description="Telefone como aparece na imagem")
 
 
-imagem = Path("dataset/contrato01.jpeg")
+imagem = Path(__file__).resolve().parent / "data" / "contrato01.jpeg"
 tipos = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
 mime_type = tipos.get(imagem.suffix.lower())
 if mime_type is None:
