@@ -82,7 +82,7 @@ def validate_export(out, inputs):
 
 def prepare(args):
     out = args.output.resolve()
-    if out.exists() or out.is_relative_to(Path(__file__).resolve().parents[4]):
+    if out.exists() or out.is_relative_to(Path(__file__).resolve().parents[5]):
         raise ValueError("A new output directory outside the checkout is required")
     require_space(out)
     out.mkdir(parents=True)
