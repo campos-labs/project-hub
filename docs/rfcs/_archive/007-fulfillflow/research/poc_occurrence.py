@@ -12,7 +12,7 @@ Hipótese: OIDC, autorização por operação e alteração/histórico atômicos
 compor uma jornada pequena, sem alterar o estado da remessa ou do pedido.
 
 PowerShell, a partir da raiz do project-hub (Docker Desktop Linux e uv):
-  $poc = 'docs/rfcs/007-fulfillflow/research/poc_occurrence.py'
+  $poc = 'docs/rfcs/_archive/007-fulfillflow/research/poc_occurrence.py'
   uv run $poc up
   uv run $poc verify
   # Opcional: --output <arquivo-novo.json> preserva uma nova execução.
