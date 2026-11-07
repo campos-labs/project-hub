@@ -29,8 +29,8 @@ class VendorProfile(BaseModel):
     phone_number: str | None = Field(
         description="Telefone como aparece na imagem",
     )
-        @model_validator(mode="after")
-        
+    
+    @model_validator(mode="after")        
     def validate_supplier_type_fields(self) -> "VendorProfile":
         if self.supplier_type == "pessoa_fisica":
             company_fields = (
@@ -45,17 +45,16 @@ class VendorProfile(BaseModel):
                     "nome fantasia ou CNPJ."
                 )
 
-        if self.supplier_type == "pessoa_juridica":
-            if self.full_name is not None:
+            if self.supplier_type is None and self.full_name is not None:
                 raise ValueError(
-                    "Pessoa jurídica não pode possuir full_name."
+                            "Fornecedor com tipo incerto não pode possuir full_name."
                 )
 
         return self
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-imagem = PROJECT_ROOT / "data" / "contrato01.jpeg"
+DATA_DIR = Path(__file__).resolve().parent / "data"
+imagem = DATA_DIR / "contrato01.jpeg"
 
 
 tipos = {
