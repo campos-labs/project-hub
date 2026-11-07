@@ -4,7 +4,7 @@ from typing import Literal
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator 
 
 
 load_dotenv()
@@ -29,9 +29,34 @@ class VendorProfile(BaseModel):
     phone_number: str | None = Field(
         description="Telefone como aparece na imagem",
     )
+        @model_validator(mode="after")
+        
+    def validate_supplier_type_fields(self) -> "VendorProfile":
+        if self.supplier_type == "pessoa_fisica":
+            company_fields = (
+                self.legal_business_name,
+                self.trade_name,
+                self.cnpj,
+            )
+
+            if any(value is not None for value in company_fields):
+                raise ValueError(
+                    "Pessoa física não pode possuir razão social, "
+                    "nome fantasia ou CNPJ."
+                )
+
+        if self.supplier_type == "pessoa_juridica":
+            if self.full_name is not None:
+                raise ValueError(
+                    "Pessoa jurídica não pode possuir full_name."
+                )
+
+        return self
 
 
-imagem = Path(__file__).resolve().parent / "data" / "contrato01.jpeg"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+imagem = PROJECT_ROOT / "data" / "contrato01.jpeg"
+
 
 tipos = {
     ".png": "image/png",
