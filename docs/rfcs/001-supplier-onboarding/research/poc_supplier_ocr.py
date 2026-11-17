@@ -39,11 +39,17 @@ class VendorProfile(BaseModel):
                 self.cnpj,
             )
 
-        if any(value is not None for value in company_fields):
+            if any(value is not None for value in company_fields):
+                raise ValueError(
+                "Pessoa física não pode possuir razão social, "
+                "nome fantasia ou CNPJ."
+                    )
+
+        if self.supplier_type == "pessoa_juridica" and self.full_name is not None:
             raise ValueError(
-            "Pessoa física não pode possuir razão social, "
-            "nome fantasia ou CNPJ."
-                )
+                "Pessoa jurídica não pode possuir full_name."
+            )
+
 
         if self.supplier_type is None and self.full_name is not None:
             raise ValueError(
