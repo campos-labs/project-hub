@@ -776,7 +776,6 @@ class PyJWTSigner:
         return jwt.encode(payload, self.secret, algorithm=ALGORITHM)
 
     def verify(self, token: str) -> InviteClaims:
-        original_datetime = jwt.api_jwt.datetime
         clock = self.clock
 
         class ControlledDateTime(datetime):
@@ -785,8 +784,9 @@ class PyJWTSigner:
                 current = datetime.fromtimestamp(clock.now(), timezone.utc)
                 return current if tz is None else current.astimezone(tz)
 
-        try:
-            with _PYJWT_CLOCK_LOCK:
+        with _PYJWT_CLOCK_LOCK:
+            original_datetime = jwt.api_jwt.datetime
+            try:
                 jwt.api_jwt.datetime = ControlledDateTime
                 payload = jwt.decode(
                     token,
@@ -796,12 +796,11 @@ class PyJWTSigner:
                         "require": ["jti", "request_id", "purpose", "iat", "exp"],
                     },
                 )
-        except jwt.ExpiredSignatureError as error:
-            raise RejectedToken("expired") from error
-        except jwt.InvalidTokenError as error:
-            raise RejectedToken("invalid_signature_or_claim") from error
-        finally:
-            with _PYJWT_CLOCK_LOCK:
+            except jwt.ExpiredSignatureError as error:
+                raise RejectedToken("expired") from error
+            except jwt.InvalidTokenError as error:
+                raise RejectedToken("invalid_signature_or_claim") from error
+            finally:
                 jwt.api_jwt.datetime = original_datetime
 
         try:
